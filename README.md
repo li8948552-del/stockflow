@@ -5,6 +5,8 @@
 
 StockFlow is an inventory and order management platform with a [`Spring Boot`](https://docs.spring.io/spring-boot/index.html) back end (`stockflow-api`) and a [React](https://react.dev/) front end (`stockflow-ui`). It uses [`JWT Authentication`](https://en.wikipedia.org/wiki/JSON_Web_Token) to secure both applications.
 
+Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-del/stockflow)
+
 ## Proof-of-Concepts & Articles
 
 On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-Concepts (PoCs) and articles. You can easily search for the technology you are interested in by using the filter. Who knows, perhaps I have already implemented a PoC or written an article about what you are looking for.
@@ -358,6 +360,10 @@ If you find this useful, consider buying me a coffee:
 ## License
 
 This project is licensed under the [MIT License](./LICENSE).
+
+## Attribution
+
+StockFlow was initially based on the MIT-licensed [ivangfr/springboot-react-jwt-token](https://github.com/ivangfr/springboot-react-jwt-token) project and has since been substantially extended. The original license and upstream authorship are preserved.
 
 ## References
 
