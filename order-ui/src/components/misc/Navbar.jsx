@@ -22,7 +22,7 @@ function Navbar() {
       <Group justify='space-between' h='100%'>
         <Group>
           <Text fw={700} size='lg' c='white'>
-            Order-UI
+            StockFlow
           </Text>
           <Anchor component={Link} to='/' c='white'>
             Home
