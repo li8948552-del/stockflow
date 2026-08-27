@@ -1,9 +1,9 @@
-# springboot-react-jwt-token
+# StockFlow
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ivan.franchin-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/ivan.franchin)
 
-The goal of this project is to implement an application called `order-app` to manage orders. For it, we will implement a back-end [`Spring Boot`](https://docs.spring.io/spring-boot/index.html) application called `order-api` and a front-end [React](https://react.dev/) application called `order-ui`. Besides, we will use [`JWT Authentication`](https://en.wikipedia.org/wiki/JSON_Web_Token) to secure both applications.
+StockFlow is an inventory and order management platform with a [`Spring Boot`](https://docs.spring.io/spring-boot/index.html) back end (`stockflow-api`) and a [React](https://react.dev/) front end (`stockflow-ui`). It uses [`JWT Authentication`](https://en.wikipedia.org/wiki/JSON_Web_Token) to secure both applications.
 
 ## Proof-of-Concepts & Articles
 
@@ -64,18 +64,18 @@ On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-C
 
 ## Start Environment
 
-- In a terminal, make sure you are inside the `springboot-react-jwt-token` root folder;
+- In a terminal, make sure you are inside the `stockflow` root folder;
 
 - Run the following command to start Docker Compose containers:
   ```bash
   docker compose up -d
   ```
 
-## Running order-app using Maven & Npm
+## Running StockFlow using Maven & Npm
 
 - **order-api**
 
-  - Open a terminal and navigate to the `springboot-react-jwt-token/order-api` folder;
+  - Open a terminal and navigate to the `stockflow/order-api` folder;
 
   - Run the following `Maven` command to start the application:
     ```bash
@@ -84,7 +84,7 @@ On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-C
 
 - **order-ui**
 
-  - Open another terminal and navigate to the `springboot-react-jwt-token/order-ui` folder;
+  - Open another terminal and navigate to the `stockflow/order-ui` folder;
 
   - Run the command below if you are running the application for the first time:
     ```bash
@@ -100,7 +100,7 @@ On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-C
 
 - **order-api**
 
-  - Open a terminal and navigate to the `springboot-react-jwt-token/order-api` folder;
+  - Open a terminal and navigate to the `stockflow/order-api` folder;
 
   - Run all tests:
     ```bash
@@ -109,7 +109,7 @@ On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-C
 
 - **order-ui**
 
-  - Open a terminal and navigate to the `springboot-react-jwt-token/order-ui` folder;
+  - Open a terminal and navigate to the `stockflow/order-ui` folder;
 
   - Run all tests:
     ```bash
@@ -239,7 +239,7 @@ On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-C
 
 - **Automatic Endpoints Test**
 
-  - Open a terminal and make sure you are in the `springboot-react-jwt-token` root folder;
+  - Open a terminal and make sure you are in the `stockflow` root folder;
 
   - Run the following script:
     ```bash
@@ -298,14 +298,14 @@ On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-C
 
 - To stop `order-api` and `order-ui`, go to the terminals where they are running and press `Ctrl+C`;
 
-- To stop and remove Docker Compose containers, network, and volumes, go to a terminal and, inside the `springboot-react-jwt-token` root folder, run the command below:
+- To stop and remove Docker Compose containers, network, and volumes, go to a terminal and, inside the `stockflow` root folder, run the command below:
   ```bash
   docker compose down -v
   ```
 
 ## How to upgrade order-ui dependencies to latest version
 
-- In a terminal, make sure you are in the `springboot-react-jwt-token/order-ui` folder;
+- In a terminal, make sure you are in the `stockflow/order-ui` folder;
 
 - Run the following commands:
   ```bash
