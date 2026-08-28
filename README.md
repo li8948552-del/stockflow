@@ -1,372 +1,272 @@
 # StockFlow
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ivan.franchin-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/ivan.franchin)
+**Enterprise Inventory, Order and Master Data Management Platform**
 
-StockFlow is an inventory and order management platform with a [`Spring Boot`](https://docs.spring.io/spring-boot/index.html) back end (`stockflow-api`) and a [React](https://react.dev/) front end (`stockflow-ui`). It uses [`JWT Authentication`](https://en.wikipedia.org/wiki/JSON_Web_Token) to secure both applications.
+StockFlow is a full-stack business application built to model real inventory and order workflows. It combines a Spring Boot REST API with a React client and PostgreSQL persistence, with an emphasis on explicit business rules, layered architecture, secure access, and reliable automated testing.
 
 Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-del/stockflow)
 
-## Proof-of-Concepts & Articles
-
-On [ivangfr.github.io](https://ivangfr.github.io), I have compiled my Proof-of-Concepts (PoCs) and articles. You can easily search for the technology you are interested in by using the filter. Who knows, perhaps I have already implemented a PoC or written an article about what you are looking for.
-
-## Additional Readings
-
-- \[**Medium**\] [**Implementing A Full Stack Web App Using Spring-Boot and React**](https://medium.com/@ivangfr/implementing-a-full-stack-web-app-using-spring-boot-and-react-7db598df4452)
-- \[**Medium**\] [**Implementing Social Login in a Spring Boot and React App**](https://medium.com/@ivangfr/implementing-social-login-in-a-spring-boot-and-react-app-6ce073c9983c)
-- \[**Medium**\] [**Building a Web Chat with Social Login using Spring Boot: Introduction**](https://medium.com/@ivangfr/building-a-web-chat-with-social-login-using-spring-boot-introduction-644702e6be8e)
-- \[**Medium**\] [**Building a Single Spring Boot App with Keycloak or Okta as IdP: Introduction**](https://medium.com/@ivangfr/building-a-single-spring-boot-app-with-keycloak-or-okta-as-idp-introduction-2814a4829aed)
-
-## Project Overview
-
-![project-overview](documentation/project-overview.png)
-
-## Applications
-
-- ### order-api
-
-  `Spring Boot` Web Java backend application that exposes a Rest API to create, retrieve, and delete orders. If a user has the `ADMIN` role, he/she can also retrieve information of other users or delete them.
-  
-  The application's secured endpoints can only be accessed if a valid JWT access token is provided.
-  
-  `order-api` stores its data in [`Postgres`](https://www.postgresql.org/) database.
-
-  `order-api` has the following endpoints:
-
-  | Endpoint                                                      | Secured | Roles           |
-  | ------------------------------------------------------------- | ------- | --------------- |
-  | `POST /auth/authenticate -d {"username","password"}`          | No      |                 |
-  | `POST /auth/signup -d {"username","password","name","email"}` | No      |                 |
-  | `GET /public/numberOfUsers`                                   | No      |                 |
-  | `GET /public/numberOfOrders`                                  | No      |                 |
-  | `GET /api/users/me`                                           | Yes     | `ADMIN`, `USER` |
-  | `GET /api/users`                                              | Yes     | `ADMIN`         |
-  | `GET /api/users/{username}`                                   | Yes     | `ADMIN`         |
-  | `DELETE /api/users/{username}`                                | Yes     | `ADMIN`         |
-  | `GET /api/orders [?text]`                                     | Yes     | `ADMIN`         |
-  | `POST /api/orders -d {"description"}`                         | Yes     | `ADMIN`, `USER` |
-  | `DELETE /api/orders/{id}`                                     | Yes     | `ADMIN`         |
-
-- ### order-ui
-
-  `React` frontend application where a user with role `USER` can create an order and retrieve a specific order. On the other hand, a user with role `ADMIN` as access to all secured endpoints.
-  
-  In order to access the application, a `user` or `admin` must log in using his/her `username` and `password`. All the requests coming from `order-ui` to secured endpoints in `order-api` include the JWT access token. This token is generated when the `user` or `admin` logs in.
-  
-  `order-ui` uses [`Mantine`](https://mantine.dev/) as a UI component library, with [`Tabler Icons`](https://tabler.io/icons) for icons.
-
-## Prerequisites
-
-- [`npm`](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
-- [`Java 25`](https://www.oracle.com/java/technologies/downloads/#java25) or higher;
-- A containerization tool (e.g., [`Docker`](https://www.docker.com), [`Podman`](https://podman.io), etc.)
-- [`Bash 4.0`](https://www.gnu.org/software/bash/) or higher (macOS ships with Bash 3.2; install via `brew install bash`)
-- [`jq`](https://jqlang.github.io/jq/)
-
-## Start Environment
-
-- In a terminal, make sure you are inside the `stockflow` root folder;
-
-- Run the following command to start Docker Compose containers:
-  ```bash
-  docker compose up -d
-  ```
-
-## Running StockFlow using Maven & Npm
-
-- **order-api**
-
-  - Open a terminal and navigate to the `stockflow/order-api` folder;
-
-  - Run the following `Maven` command to start the application:
-    ```bash
-    ./mvnw clean spring-boot:run
-    ```
-
-- **order-ui**
-
-  - Open another terminal and navigate to the `stockflow/order-ui` folder;
-
-  - Run the command below if you are running the application for the first time:
-    ```bash
-    npm install
-    ```
-
-  - Run the `npm` command below to start the application:
-    ```bash
-    npm start
-    ```
-
-## Running Tests
-
-- **order-api**
-
-  - Open a terminal and navigate to the `stockflow/order-api` folder;
-
-  - Run all tests:
-    ```bash
-    ./mvnw clean test
-    ```
-
-- **order-ui**
-
-  - Open a terminal and navigate to the `stockflow/order-ui` folder;
-
-  - Run all tests:
-    ```bash
-    npm test
-    ```
-
-## Applications URLs
-
-| Application | URL                                   | Credentials                                         |
-| ----------- | ------------------------------------- | --------------------------------------------------- |
-| order-api   | http://localhost:8080/swagger-ui.html |                                                     |
-| order-ui    | http://localhost:3000                 | `admin/admin`, `user/user` or signing up a new user |
-
-> **Note**: the credentials shown in the table are the ones already pre-defined. You can signup new users.
-
-## Demo
-
-- The gif below shows a `user` loging in:
-
-  ![user-login](documentation/user-login.gif)
-
-- The gif below shows an `admin` loging in:
-
-  ![admin-login](documentation/admin-login.gif)
-
-## Testing order-api Endpoints
-
-- **Manual Endpoints Test using Swagger**
-  
-  - Open a browser and access http://localhost:8080/swagger-ui.html. All endpoints with the lock sign are secured. In order to access them, you need a valid JWT access token;
-
-  - Click `POST /auth/authenticate` and then, click `Try it out` button;
-  
-  - Provide the `user` credentials `username` and `password`:
-    ```json
-    { "password": "user", "username": "user" }
-    ```
-  
-  - Click the `Execute` button. It should return something like:
-    ```text
-    Code: 200
-    { "accessToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9..." }
-    ```
-    > **Note 1**: You can use the `admin` credentials to access more secured endpoints.
-    >
-    > **Note 2**: The token will expire in **10 minutes**.
-
-  - Copy the `accessToken` value (**without** the double quotes);
-  
-  - Click the `Authorize` button at the top of the page;
-  
-  - In `Value` input field, paste the copied token;
-  
-  - Click the `Authorize` button and then, click the `Close` button;
-  
-  - To create an order, click `POST /api/orders` and then, click the `Try it out` button;
-
-  - Provide the `description` of the order:
-    ```json
-    { "description": "Buy two iPhones" }
-    ```
-
-  - Click the `Execute` button. It should return something like:
-    ```text
-    Code: 200
-    {
-      "id": "718c9f40-5c06-4571-bc3e-3f888c52eff2",
-      "description": "Buy two iPhones",
-      "user": { "username": "user" },
-      "createdAt": "..."
-    }
-    ```
-
-- **Manual Endpoints Test using curl**
-
-  - Open a terminal;
-  
-  - Call `GET /public/numberOfUsers`:
-    ```bash
-    curl -i localhost:8080/public/numberOfUsers
-    ```
-    It should return:
-    ```text
-    HTTP/1.1 200
-    2
-    ```
-
-  - Call `GET /api/orders` without JWT access token:
-    ```bash
-    curl -i localhost:8080/api/orders
-    ```
-    As for this endpoint a valid JWT access token is required, it should return:
-    ```text
-    HTTP/1.1 401
-    ```
-
-  - Call `POST /auth/authenticate` to get the `admin` JWT access token:
-    ```bash
-    ADMIN_ACCESS_TOKEN="$(curl -s -X POST http://localhost:8080/auth/authenticate \
-      -H 'Content-Type: application/json' \
-      -d '{"username": "admin", "password": "admin"}' | jq -r .accessToken)"
-    echo $ADMIN_ACCESS_TOKEN
-    ```
-
-  - Call `GET /api/orders` again, now with the `admin` JWT access token:
-    ```bash
-    curl -i -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN" localhost:8080/api/orders
-    ```
-    It should return an empty array or an array with orders:
-    ```text
-    HTTP/1.1 200
-    [ ... ]
-    ```
-
-  - Call `GET /api/users/me` to get more information about the `admin`:
-    ```bash
-    curl -i -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN" localhost:8080/api/users/me
-    ```
-    It should return:
-    ```text
-    HTTP/1.1 200
-    {
-      "id": 1, "username": "admin", "name": "Admin", "email": "admin@mycompany.com", "role": "ADMIN",
-      "orders": []
-    }
-    ```
-
-- **Automatic Endpoints Test**
-
-  - Open a terminal and make sure you are in the `stockflow` root folder;
-
-  - Run the following script:
-    ```bash
-    ./order-api/test-endpoints.sh
-    ```
-    It should return something like the output below, where it shows the http code for different requests:
-    ```text
-    POST auth/authenticate
-    ======================
-    admin access token
-    ------------------
-    eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJleHAiOjE1ODY2MjM1MjksImlhdCI6MTU4Nj..._ha2pM4LSSG3_d4exgA
-    
-    user access token
-    -----------------
-    eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJleHAiOjE1ODY2MjM1MjksImlhdCIyOSwian...Y3z9uwhuW_nwaGX3cc5A
-    
-    POST auth/signup
-    ================
-    user2 access token
-    ------------------
-    eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJleHAiOjE1ODY2MjM1MjksImanRpIjoiYTMw...KvhQbsMGAlFov1Q480qg
-    
-    Authorization
-    =============
-                    Endpoints | without token |  user token |  admin token |
-    ------------------------- + ------------- + ----------- + ------------ |
-     GET public/numberOfUsers |           200 |         200 |          200 |
-    GET public/numberOfOrders |           200 |         200 |          200 |
-    ......................... + ............. + ........... + ............ |
-            GET /api/users/me |           401 |         200 |          200 |
-               GET /api/users |           401 |         403 |          200 |
-         GET /api/users/user2 |           401 |         403 |          200 |
-      DELETE /api/users/user2 |           401 |         403 |          204 |
-    ......................... + ............. + ........... + ............ |
-              GET /api/orders |           401 |         403 |          200 |
-             POST /api/orders |           401 |         201 |          201 |
-      DELETE /api/orders/{id} |           401 |         403 |          204 |
-    ------------------------------------------------------------------------
-     [200] Success -  [201] Created -  [204] No Content -  [401] Unauthorized -  [403] Forbidden
-    ```
-
-## Util Commands
-
-- **Postgres**
-  ```bash
-  docker exec -it postgres psql -U postgres -d orderdb
-  \dt
-  ```
-
-- **jwt.io**
-
-  With [jwt.io](https://jwt.io), you can input the JWT token, and the online tool decodes the token, showing its header and payload.
-
-## Shutdown
-
-- To stop `order-api` and `order-ui`, go to the terminals where they are running and press `Ctrl+C`;
-
-- To stop and remove Docker Compose containers, network, and volumes, go to a terminal and, inside the `stockflow` root folder, run the command below:
-  ```bash
-  docker compose down -v
-  ```
-
-## How to upgrade order-ui dependencies to latest version
-
-- In a terminal, make sure you are in the `stockflow/order-ui` folder;
-
-- Run the following commands:
-  ```bash
-  npm upgrade
-  npm i -g npm-check-updates
-  ncu -u
-  npm install
-  ```
-
-## Code Formatting
-
-- **Spring Boot module** (`order-api`): Code is formatted using [Spotless](https://github.com/diffplug/spotless/tree/main/plugin-maven) with [Google Java Format](https://github.com/google/google-java-format).
-
-  To check or apply formatting, make sure you are inside the module folder and run the following command:
-
-  - **Check formatting**:
-    ```bash
-    ./mvnw spotless:check
-    ```
-
-  - **Auto-fix formatting**:
-    ```bash
-    ./mvnw spotless:apply
-    ```
-
-- **React module** (`order-ui`): Code is formatted using [Prettier](https://prettier.io/) with rules aligned to the project's style guide (2-space indentation, single quotes, no trailing semicolons). ESLint conflicts are resolved via `eslint-config-prettier`. Configuration is defined in `.prettierrc` (formatting rules) and `.editorconfig` (editor consistency).
-
-  To check or apply formatting, make sure you are inside the `order-ui` folder and run the following commands:
-
-  - **Check formatting**:
-    ```bash
-    npm run format:check
-    ```
-
-  - **Auto-fix formatting**:
-    ```bash
-    npm run format
-    ```
-
-## How to optimize GIFs and PNGs in documentation folder
-
-\[**Medium**\]: [**How I Reduce GIF and Screenshot Sizes for My Technical Articles on macOS**](https://medium.com/itnext/how-i-reduce-gif-and-screenshot-sizes-for-my-technical-articles-on-macos-7fea331afc68)
-
-## Support
-
-If you find this useful, consider buying me a coffee:
-
-<a href="https://buymeacoffee.com/ivan.franchin"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50"></a>
-
-## License
-
-This project is licensed under the [MIT License](./LICENSE).
-
-## Attribution
-
-StockFlow was initially based on the MIT-licensed [ivangfr/springboot-react-jwt-token](https://github.com/ivangfr/springboot-react-jwt-token) project and has since been substantially extended. The original license and upstream authorship are preserved.
-
-## References
-
-- https://www.callicoder.com/spring-boot-security-oauth2-social-login-part-2/#jwt-token-provider-authentication-filter-authentication-error-handler-and-userprincipal
-- https://bezkoder.com/spring-boot-jwt-authentication/
-- https://dev.to/keysh/spring-security-with-jwt-3j76
+## Current development status
+
+### Implemented now
+
+- Stateless JWT authentication, user registration, and role-based access control
+- A foundational order module for creating, listing, searching, and deleting simple user-owned order records
+- Product master data with validated pricing, reorder points, activation status, and normalized unique SKUs
+- Supplier and Warehouse master data with normalized unique business codes
+- Authenticated master-data reads and `ADMIN`-only create, update, and deactivate operations
+- React authentication and foundational order/user workflows
+- PostgreSQL persistence, OpenAPI documentation, and automated unit, controller, security, and JPA tests
+
+### Currently under development
+
+- Inventory domain modeling and the relationships between products, suppliers, and warehouses
+- Frontend management experiences for Product, Supplier, and Warehouse data
+- Evolution of the original order foundation into a structured sales-order workflow
+
+### Planned roadmap
+
+Inventory reservation, inventory movements, a sales-order state machine, analytics/ETL, Power BI, and AI-assisted replenishment are planned capabilities. They are not implemented in the current codebase.
+
+## Engineering highlights
+
+- Spring Boot layered architecture with REST controllers, DTOs, transactional services, JPA repositories, and domain entities
+- Stateless JWT authentication and Spring Security role-based authorization
+- Product, Supplier, and Warehouse master-data management
+- Authenticated reads with `ADMIN`-only write operations
+- Soft deletion for Product, Supplier, and Warehouse records by setting `active` to `false`
+- Transactional service operations and database-level named unique constraints
+- Shared normalization for SKUs and business codes using Unicode-aware boundary whitespace handling and `Locale.ROOT` uppercasing
+- Validation against normalized Unicode code-point limits rather than UTF-16 code units
+- DTO/entity separation so JPA entities are not exposed directly by master-data APIs
+- Constraint-specific duplicate handling that does not misclassify unrelated persistence failures
+- Deterministic Java 25 Mockito execution through an explicitly resolved, portable Maven Surefire Java agent
+- 186 backend tests verified with 0 failures, 0 errors, and 0 skipped
+
+The current Order module is an intentionally simple foundation: it stores a description, owner, and creation time and supports basic create/query/delete behavior. Inventory-aware line items, reservations, fulfillment state, cancellation, and expiration remain roadmap work.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[React frontend] -->|HTTP + JWT| API[REST/JWT controllers]
+    API --> SVC[Service layer]
+    SVC --> REPO[JPA repositories]
+    REPO --> DB[(PostgreSQL)]
+```
+
+## Technology stack
+
+| Area | Technology | Repository version |
+| --- | --- | --- |
+| Language | Java | 25 |
+| Backend | Spring Boot | 4.1.0 |
+| Security | Spring Security | Managed by Spring Boot 4.1.0 |
+| Persistence | Spring Data JPA / Hibernate | Managed by Spring Boot 4.1.0 |
+| Database | PostgreSQL | 18.4 Docker image |
+| Frontend | React | 19.2.8 |
+| UI components | Mantine | 9.4.2 |
+| Backend build | Maven Wrapper / Maven | Wrapper 3.3.4 / Maven 3.9.16 |
+| Frontend tooling | npm | Lockfile version 3 |
+| Containers | Docker Compose | Compose specification in `compose.yaml` |
+| Backend testing | JUnit and Mockito | Managed by Spring Boot 4.1.0 |
+| Frontend build/test | Vite / Vitest | 8.1.5 / 4.1.10 |
+
+## Domain modules
+
+| Module | Status | Purpose |
+| --- | --- | --- |
+| Authentication/User | Implemented | Signup, login, JWT issuance, current-user access, and administrative user management |
+| Order foundation | Implemented foundation | Simple user-owned order records with description-based search; not yet inventory-aware |
+| Product | Implemented | Product identity, normalized SKU, price, reorder point, active status, and timestamps |
+| Supplier | Implemented | Supplier identity, normalized code, contact details, lead time, active status, and timestamps |
+| Warehouse | Implemented | Warehouse identity, normalized code, location, active status, and timestamps |
+
+## Business rules
+
+- `sku`, `supplierCode`, and `warehouseCode` are normalized by removing Unicode boundary whitespace and uppercasing with `Locale.ROOT`.
+- Normalized identifiers must be nonblank and no longer than 64 Unicode code points. Internal whitespace is preserved.
+- Identifier uniqueness is protected by service pre-checks and explicit database unique constraints.
+- Product prices are nonnegative `numeric(19,2)` values. Requests allow at most 17 integer digits and two fractional digits without silent rounding.
+- Product reorder points are nonnegative. Supplier lead times must be between 0 and 3650 days.
+- Product, Supplier, and Warehouse deletion endpoints perform soft deletion by setting `active` to `false`.
+- Master-data reads require authentication; create, update, and deactivate operations require the `ADMIN` role.
+- DTO validation, service validation, entity setters and lifecycle callbacks, Jakarta entity validation, and database constraints provide defense in depth.
+- Only violations of the relevant named unique constraint are translated into duplicate-identifier conflicts.
+
+## API overview
+
+All secured endpoints expect `Authorization: Bearer <token>`. Interactive OpenAPI documentation is available at `http://localhost:8080/swagger-ui.html` while the backend is running.
+
+| Method | Path | Access | Behavior |
+| --- | --- | --- | --- |
+| `POST` | `/auth/authenticate` | Public | Authenticate and issue a JWT |
+| `POST` | `/auth/signup` | Public | Register a `USER` account and issue a JWT |
+| `GET` | `/public/numberOfUsers` | Public | Return the user count |
+| `GET` | `/public/numberOfOrders` | Public | Return the order count |
+| `GET` | `/api/users/me` | Authenticated | Return the current user |
+| `GET` | `/api/users` | `ADMIN` | List users |
+| `GET` | `/api/users/{username}` | `ADMIN` | Get a user by username |
+| `DELETE` | `/api/users/{username}` | `ADMIN` | Delete a user, subject to admin safety rules |
+| `GET` | `/api/orders?text={text}` | `ADMIN` | List orders, optionally filtering by description text |
+| `POST` | `/api/orders` | `ADMIN` or `USER` | Create a simple order for the authenticated user |
+| `DELETE` | `/api/orders/{id}` | `ADMIN` | Physically delete an order |
+| `GET` | `/api/products` | Authenticated | List products |
+| `GET` | `/api/products/{id}` | Authenticated | Get a product |
+| `POST` | `/api/products` | `ADMIN` | Create a product |
+| `PUT` | `/api/products/{id}` | `ADMIN` | Update a product |
+| `DELETE` | `/api/products/{id}` | `ADMIN` | Deactivate a product |
+| `GET` | `/api/suppliers` | Authenticated | List suppliers |
+| `GET` | `/api/suppliers/{id}` | Authenticated | Get a supplier |
+| `POST` | `/api/suppliers` | `ADMIN` | Create a supplier |
+| `PUT` | `/api/suppliers/{id}` | `ADMIN` | Update a supplier |
+| `DELETE` | `/api/suppliers/{id}` | `ADMIN` | Deactivate a supplier |
+| `GET` | `/api/warehouses` | Authenticated | List warehouses |
+| `GET` | `/api/warehouses/{id}` | Authenticated | Get a warehouse |
+| `POST` | `/api/warehouses` | `ADMIN` | Create a warehouse |
+| `PUT` | `/api/warehouses/{id}` | `ADMIN` | Update a warehouse |
+| `DELETE` | `/api/warehouses/{id}` | `ADMIN` | Deactivate a warehouse |
+
+## Project structure
+
+```text
+stockflow/
+├── compose.yaml
+├── order-api/
+│   ├── pom.xml
+│   └── src/
+│       ├── main/
+│       │   ├── java/com/ivanfranchin/orderapi/
+│       │   │   ├── config/            # OpenAPI and error configuration
+│       │   │   ├── order/             # Order foundation
+│       │   │   ├── product/           # Product domain and persistence
+│       │   │   ├── rest/              # Controllers and request/response DTOs
+│       │   │   ├── security/          # JWT authentication and authorization
+│       │   │   ├── supplier/          # Supplier domain and persistence
+│       │   │   ├── user/              # User domain and persistence
+│       │   │   ├── validation/        # Shared business-code validation
+│       │   │   └── warehouse/         # Warehouse domain and persistence
+│       │   └── resources/application.yml
+│       └── test/                       # Unit, controller, security, and JPA tests
+└── order-ui/
+    ├── package.json
+    ├── package-lock.json
+    └── src/
+        ├── components/
+        │   ├── admin/
+        │   ├── context/
+        │   ├── home/
+        │   ├── misc/
+        │   └── user/
+        ├── App.jsx
+        └── index.jsx
+```
+
+## Getting started
+
+### Prerequisites
+
+- Java 25
+- Docker with Docker Compose
+- Node.js compatible with Vite 8 (`20.19+`, `22.12+`, or `24+`)
+- npm
+- Git
+
+### Clone and start PostgreSQL
+
+```bash
+git clone https://github.com/li8948552-del/stockflow.git
+cd stockflow
+docker compose up -d
+```
+
+Docker Compose starts PostgreSQL 18.4 on `localhost:5432` with the database and development credentials declared in [`compose.yaml`](compose.yaml).
+
+### Start the backend
+
+From a terminal opened in the directory that contains the cloned `stockflow` folder:
+
+```bash
+cd stockflow/order-api
+./mvnw spring-boot:run
+```
+
+The API runs at `http://localhost:8080`; Swagger UI is available at `http://localhost:8080/swagger-ui.html`.
+
+### Start the frontend
+
+From a second terminal opened in the directory that contains the cloned `stockflow` folder:
+
+```bash
+cd stockflow/order-ui
+npm install
+npm start
+```
+
+The frontend runs at `http://localhost:3000` and is allowed by the backend's default CORS configuration.
+
+On an empty database, the application creates these development accounts:
+
+| Role | Username | Password |
+| --- | --- | --- |
+| `ADMIN` | `admin` | `admin` |
+| `USER` | `user` | `user` |
+
+New `USER` accounts can also be created through `/auth/signup`.
+
+## Testing
+
+Run backend commands from `order-api`:
+
+```bash
+# Formatting verification
+./mvnw spotless:check
+
+# Focused Product, Supplier, Warehouse, and shared-validation tests
+./mvnw -Dtest='BusinessCodeTest,*Product*Test,*Supplier*Test,*Warehouse*Test' test
+
+# Complete backend suite
+./mvnw clean test
+```
+
+The current `develop` branch has been verified with **186 backend tests: 0 failures, 0 errors, and 0 skipped**.
+
+Build the frontend from `order-ui`:
+
+```bash
+npm install
+npm run build
+```
+
+## Roadmap
+
+### Completed
+
+- [x] Project rebrand and standalone repository
+- [x] Authentication/RBAC foundation
+- [x] Product management
+- [x] Supplier management
+- [x] Warehouse management
+
+### Planned
+
+- [ ] Inventory and `InventoryMovement`
+- [ ] Stock refill, adjustment, and audit history
+- [ ] Optimistic locking and overselling prevention
+- [ ] Structured `SalesOrder` and `OrderItem`
+- [ ] Reservation, cancellation, and expiration
+- [ ] Frontend management pages
+- [ ] Dimensional warehouse/ETL and Power BI
+- [ ] AI replenishment assistant
+- [ ] Deployment and demo
+
+## Project evolution and attribution
+
+StockFlow is developed and maintained by [Hexin Li](https://github.com/li8948552-del). The project began with the authentication and basic order-management foundation from the MIT-licensed [ivangfr/springboot-react-jwt-token](https://github.com/ivangfr/springboot-react-jwt-token) project and has since been substantially extended with independent domain modelling, validation, persistence, security, and testing work.
+
+This is a standalone repository. The original MIT license and upstream copyright remain in [`LICENSE`](LICENSE).
+
+## Author and license
+
+- Author: [Hexin Li](https://github.com/li8948552-del)
+- License: [MIT License](LICENSE)

@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.product;
 
+import com.ivanfranchin.orderapi.product.validation.ValidProductSku;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -24,11 +25,13 @@ public class Product {
 
   public static final String SKU_UNIQUE_CONSTRAINT = "uk_products_sku";
   public static final int SKU_MAX_LENGTH = 64;
+  public static final int SKU_STORAGE_LENGTH = SKU_MAX_LENGTH * 2;
   public static final int NAME_MAX_LENGTH = 255;
 
   @Id private String id;
 
-  @Column(nullable = false, length = SKU_MAX_LENGTH)
+  @ValidProductSku
+  @Column(nullable = false, length = SKU_STORAGE_LENGTH)
   private String sku;
 
   @Column(nullable = false, length = NAME_MAX_LENGTH)
@@ -50,7 +53,7 @@ public class Product {
   private Instant updatedAt;
 
   public Product(String sku, String name, BigDecimal price, Integer reorderPoint) {
-    this.sku = sku;
+    setSku(sku);
     this.name = name;
     this.price = price;
     this.reorderPoint = reorderPoint;
@@ -76,6 +79,10 @@ public class Product {
   }
 
   private void normalizeSku() {
-    sku = ProductSku.normalize(sku);
+    sku = ProductSku.normalizeAndValidate(sku);
+  }
+
+  public void setSku(String sku) {
+    this.sku = ProductSku.normalizeAndValidate(sku);
   }
 }
