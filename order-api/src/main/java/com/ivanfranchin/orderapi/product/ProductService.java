@@ -71,7 +71,7 @@ public class ProductService {
   }
 
   private String normalizeSku(String sku) {
-    return ProductSku.normalize(sku);
+    return ProductSku.normalizeAndValidate(sku);
   }
 
   private boolean isSkuUniqueConstraintViolation(Throwable exception) {

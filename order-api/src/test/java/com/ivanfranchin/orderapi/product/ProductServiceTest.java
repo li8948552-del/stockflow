@@ -2,6 +2,7 @@ package com.ivanfranchin.orderapi.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -57,7 +58,7 @@ class ProductServiceTest {
 
   @Test
   void createProduct_normalizesSkuAndSaves() {
-    Product product = product(" sku-1 ");
+    Product product = product("\u2003sku-1\u00a0");
     when(productRepository.existsBySku("SKU-1")).thenReturn(false);
     when(productRepository.saveAndFlush(product)).thenReturn(product);
 
@@ -69,13 +70,34 @@ class ProductServiceTest {
 
   @Test
   void createProduct_rejectsDuplicateSkuCaseInsensitively() {
-    Product product = product("sku-1");
+    Product product = product("\u00a0sku-1\u2003");
     when(productRepository.existsBySku("SKU-1")).thenReturn(true);
 
     assertThatThrownBy(() -> productService.createProduct(product))
         .isInstanceOf(DuplicateSkuException.class)
         .hasMessageContaining("SKU-1");
     verify(productRepository).existsBySku("SKU-1");
+    verifyNoMoreInteractions(productRepository);
+  }
+
+  @Test
+  void createAndUpdateRejectMoreThan64CodePointsBeforePersistence() {
+    String invalidSku = "\ud83d\udce6".repeat(Product.SKU_MAX_LENGTH + 1);
+    Product invalidProduct = mock(Product.class);
+    when(invalidProduct.getSku()).thenReturn(invalidSku);
+
+    assertThatThrownBy(() -> productService.createProduct(invalidProduct))
+        .isInstanceOf(IllegalArgumentException.class);
+    verifyNoMoreInteractions(productRepository);
+
+    Product existing = product("SKU-1");
+    when(productRepository.findById("product-id")).thenReturn(Optional.of(existing));
+    assertThatThrownBy(
+            () ->
+                productService.updateProduct(
+                    "product-id", invalidSku, "Updated", BigDecimal.ONE, 1, true))
+        .isInstanceOf(IllegalArgumentException.class);
+    verify(productRepository).findById("product-id");
     verifyNoMoreInteractions(productRepository);
   }
 
@@ -117,9 +139,9 @@ class ProductServiceTest {
 
     Product result =
         productService.updateProduct(
-            "product-id", " new-sku ", "Updated", new BigDecimal("12.50"), 7, false);
+            "product-id", "\u00a0new sku\u2003", "Updated", new BigDecimal("12.50"), 7, false);
 
-    assertThat(result.getSku()).isEqualTo("NEW-SKU");
+    assertThat(result.getSku()).isEqualTo("NEW SKU");
     assertThat(result.getName()).isEqualTo("Updated");
     assertThat(result.getPrice()).isEqualByComparingTo("12.50");
     assertThat(result.getReorderPoint()).isEqualTo(7);

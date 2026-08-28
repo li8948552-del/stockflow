@@ -214,6 +214,61 @@ class ProductControllerTest {
 
   @Test
   @WithMockUser(authorities = "ADMIN")
+  void unicodeBoundaryWhitespaceIsAcceptedForCreateAndUpdate() throws Exception {
+    when(productService.createProduct(any(Product.class))).thenReturn(product());
+    when(productService.updateProduct(
+            anyString(), anyString(), anyString(), any(BigDecimal.class), anyInt(), anyBoolean()))
+        .thenReturn(product());
+
+    for (String whitespace : List.of("\u2003", "\u00a0")) {
+      String paddedSku = whitespace + "a".repeat(Product.SKU_MAX_LENGTH) + whitespace;
+      CreateProductRequest createRequest =
+          new CreateProductRequest(paddedSku, "Keyboard", new BigDecimal("12.99"), 10);
+      UpdateProductRequest updateRequest =
+          new UpdateProductRequest(paddedSku, "Keyboard", new BigDecimal("12.99"), 10, true);
+
+      mockMvc
+          .perform(
+              post("/api/products")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(jsonMapper.writeValueAsString(createRequest)))
+          .andExpect(status().isCreated());
+      mockMvc
+          .perform(
+              put("/api/products/product-id")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(jsonMapper.writeValueAsString(updateRequest)))
+          .andExpect(status().isOk());
+    }
+  }
+
+  @Test
+  @WithMockUser(authorities = "ADMIN")
+  void supplementaryCodePointLimitAppliesEquallyToCreateAndUpdate() throws Exception {
+    when(productService.createProduct(any(Product.class))).thenReturn(product());
+    when(productService.updateProduct(
+            anyString(), anyString(), anyString(), any(BigDecimal.class), anyInt(), anyBoolean()))
+        .thenReturn(product());
+
+    assertCreateAndUpdateSkuStatus("\ud83d\udce6".repeat(Product.SKU_MAX_LENGTH), 201, 200);
+    assertCreateAndUpdateSkuStatus("\ud83d\udce6".repeat(Product.SKU_MAX_LENGTH + 1), 400, 400);
+  }
+
+  @Test
+  @WithMockUser(authorities = "ADMIN")
+  void mixedBmpAndSupplementarySkuIsCountedByCodePoint() throws Exception {
+    when(productService.createProduct(any(Product.class))).thenReturn(product());
+    when(productService.updateProduct(
+            anyString(), anyString(), anyString(), any(BigDecimal.class), anyInt(), anyBoolean()))
+        .thenReturn(product());
+
+    assertCreateAndUpdateSkuStatus(
+        "a".repeat(Product.SKU_MAX_LENGTH - 1) + "\ud83d\udce6", 201, 200);
+    assertCreateAndUpdateSkuStatus("a".repeat(Product.SKU_MAX_LENGTH) + "\ud83d\udce6", 400, 400);
+  }
+
+  @Test
+  @WithMockUser(authorities = "ADMIN")
   void createProduct_rejectsSkuWhenUppercaseNormalizedLengthExceeds64() throws Exception {
     String expandingSku = "a".repeat(Product.SKU_MAX_LENGTH - 1) + "ß";
     CreateProductRequest request =
@@ -377,6 +432,27 @@ class ProductControllerTest {
     product.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
     product.setUpdatedAt(Instant.parse("2026-01-01T00:00:00Z"));
     return product;
+  }
+
+  private void assertCreateAndUpdateSkuStatus(String sku, int createStatus, int updateStatus)
+      throws Exception {
+    CreateProductRequest createRequest =
+        new CreateProductRequest(sku, "Keyboard", new BigDecimal("12.99"), 10);
+    UpdateProductRequest updateRequest =
+        new UpdateProductRequest(sku, "Keyboard", new BigDecimal("12.99"), 10, true);
+
+    mockMvc
+        .perform(
+            post("/api/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonMapper.writeValueAsString(createRequest)))
+        .andExpect(status().is(createStatus));
+    mockMvc
+        .perform(
+            put("/api/products/product-id")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonMapper.writeValueAsString(updateRequest)))
+        .andExpect(status().is(updateStatus));
   }
 
   private CreateProductRequest createRequest() {
