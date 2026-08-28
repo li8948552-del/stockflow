@@ -11,7 +11,7 @@ done
 BASE_URL="${BASE_URL:-localhost:8080}"
 
 if ! curl -sf --max-time 3 "${BASE_URL}/public/numberOfUsers" > /dev/null 2>&1; then
-  printf 'error: Cannot reach %s — is the order-api running?\n' "${BASE_URL}" >&2
+  printf 'error: Cannot reach %s — is the StockFlow API running?\n' "${BASE_URL}" >&2
   exit 1
 fi
 
