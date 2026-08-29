@@ -13,6 +13,8 @@ export const orderApi = {
   getOrder,
   createOrder,
   cancelOrder,
+  payOrder,
+  shipOrder,
   getProducts,
   getWarehouses,
   getInventory,
@@ -64,8 +66,9 @@ function getOrders(user, params = {}, signal) {
   })
 }
 
-function getOrder(user, orderId) {
+function getOrder(user, orderId, signal) {
   return instance.get(`/api/orders/${orderId}`, {
+    signal,
     headers: { Authorization: bearerAuth(user) }
   })
 }
@@ -81,6 +84,18 @@ function createOrder(user, order) {
 
 function cancelOrder(user, orderId) {
   return instance.post(`/api/orders/${orderId}/cancel`, null, {
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function payOrder(user, orderId) {
+  return instance.post(`/api/orders/${orderId}/pay`, null, {
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function shipOrder(user, orderId) {
+  return instance.post(`/api/orders/${orderId}/ship`, null, {
     headers: { Authorization: bearerAuth(user) }
   })
 }

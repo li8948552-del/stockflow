@@ -6,6 +6,7 @@ import com.ivanfranchin.orderapi.rest.dto.CreateOrderRequest;
 import com.ivanfranchin.orderapi.security.Role;
 import com.ivanfranchin.orderapi.user.User;
 import com.ivanfranchin.orderapi.user.UserService;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -13,11 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@RequiredArgsConstructor
 @Service
 public class OrderService {
   private static final Duration RESERVATION_DURATION = Duration.ofMinutes(30);
@@ -25,6 +24,19 @@ public class OrderService {
   private final OrderRepository orderRepository;
   private final UserService userService;
   private final InventoryService inventoryService;
+  private Clock clock = Clock.systemUTC();
+
+  public OrderService(
+      OrderRepository orderRepository, UserService userService, InventoryService inventoryService) {
+    this.orderRepository = orderRepository;
+    this.userService = userService;
+    this.inventoryService = inventoryService;
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  void setClock(Clock clock) {
+    this.clock = clock;
+  }
 
   @Transactional(readOnly = true)
   public List<Order> getOrders(
@@ -50,7 +62,8 @@ public class OrderService {
     InventoryService.ReservationBatch reservation =
         inventoryService.reserveForOrder(request.warehouseId(), quantities, orderId, username);
     Order order =
-        new Order(orderId, user, reservation.warehouse(), Instant.now().plus(RESERVATION_DURATION));
+        new Order(
+            orderId, user, reservation.warehouse(), Instant.now(clock).plus(RESERVATION_DURATION));
     Map<String, InventoryService.ReservedProduct> reservedByProduct =
         reservation.products().stream()
             .collect(Collectors.toMap(item -> item.product().getId(), item -> item));
@@ -84,6 +97,75 @@ public class OrderService {
         order.getWarehouse().getId(), quantities, order.getId(), username);
     order.cancel();
     return orderRepository.saveAndFlush(order);
+  }
+
+  @Transactional
+  public Order payOrder(String id, String username, Role role) {
+    Order order = lockDetailed(id);
+    requireOwnerOrAdmin(order, username, role);
+    if (order.getStatus() == OrderStatus.PAID) return order;
+    if (order.getStatus() != OrderStatus.RESERVED) {
+      throw new OrderPaymentConflictException(
+          "Order in status %s cannot be paid".formatted(order.getStatus()));
+    }
+    if (!Instant.now(clock).isBefore(order.getExpiresAt())) {
+      throw new OrderExpiredException("Order reservation has expired");
+    }
+    order.markPaid(Instant.now(clock), "PAY-" + UUID.randomUUID());
+    return orderRepository.saveAndFlush(order);
+  }
+
+  @Transactional
+  public Order shipOrder(String id, String username, Role role) {
+    if (role != Role.ADMIN) throw new OrderAccessDeniedException("Only ADMIN can ship orders");
+    Order order = lockDetailed(id);
+    if (order.getStatus() == OrderStatus.SHIPPED) return order;
+    if (order.getStatus() != OrderStatus.PAID) {
+      throw new OrderShipmentConflictException(
+          "Order in status %s cannot be shipped".formatted(order.getStatus()));
+    }
+    Map<String, Long> quantities =
+        order.getItems().stream()
+            .collect(
+                Collectors.toMap(
+                    item -> item.getProduct().getId(),
+                    OrderItem::getQuantity,
+                    (left, right) -> left,
+                    LinkedHashMap::new));
+    inventoryService.shipForOrder(
+        order.getWarehouse().getId(), quantities, order.getId(), username);
+    order.markShipped(Instant.now(clock));
+    return orderRepository.saveAndFlush(order);
+  }
+
+  @Transactional
+  public Order expireOrder(String id) {
+    Order order = lockDetailed(id);
+    if (order.getStatus() != OrderStatus.RESERVED
+        || Instant.now(clock).isBefore(order.getExpiresAt())) {
+      return order;
+    }
+    Map<String, Long> quantities =
+        order.getItems().stream()
+            .collect(
+                Collectors.toMap(
+                    item -> item.getProduct().getId(),
+                    OrderItem::getQuantity,
+                    (left, right) -> left,
+                    LinkedHashMap::new));
+    inventoryService.releaseForOrder(
+        order.getWarehouse().getId(),
+        quantities,
+        order.getId(),
+        "system",
+        "Sales order reservation expired");
+    order.markExpired(Instant.now(clock));
+    return orderRepository.saveAndFlush(order);
+  }
+
+  private Order lockDetailed(String id) {
+    orderRepository.findByIdForUpdate(id).orElseThrow(() -> notFound(id));
+    return orderRepository.findDetailedById(id).orElseThrow(() -> notFound(id));
   }
 
   public long countOrders() {

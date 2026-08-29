@@ -12,6 +12,9 @@ function UserPage() {
   const user = Auth.getUser()
   const isUser = user.data.rol[0] === 'USER'
   const inventoryRequest = useRef(null)
+  const orderSyncRequest = useRef(0)
+  const orderSyncController = useRef(null)
+  const mounted = useRef(true)
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
   const [warehouses, setWarehouses] = useState([])
@@ -20,6 +23,7 @@ function UserPage() {
   const [isInventoryLoading, setIsInventoryLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [cancellingId, setCancellingId] = useState(null)
+  const [processingId, setProcessingId] = useState(null)
   const [resourceError, setResourceError] = useState(null)
   const [message, setMessage] = useState(null)
 
@@ -46,7 +50,10 @@ function UserPage() {
       .finally(() => active && setIsLoading(false))
     return () => {
       active = false
+      mounted.current = false
+      orderSyncRequest.current += 1
       inventoryRequest.current?.abort()
+      orderSyncController.current?.abort()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -105,15 +112,17 @@ function UserPage() {
   }
 
   const cancelOrder = async (orderId) => {
+    const operationId = ++orderSyncRequest.current
     setCancellingId(orderId)
     setMessage(null)
     try {
       const response = await orderApi.cancelOrder(user, orderId)
-      setOrders((current) =>
-        current.map((order) =>
-          order.id === response.data.id ? response.data : order
+      if (operationId === orderSyncRequest.current)
+        setOrders((current) =>
+          current.map((order) =>
+            order.id === response.data.id ? response.data : order
+          )
         )
-      )
       setMessage({
         color: 'green',
         text: 'Order cancelled and reserved inventory released.'
@@ -121,13 +130,71 @@ function UserPage() {
       return response.data
     } catch (error) {
       handleLogError(error)
-      setMessage({
-        color: 'red',
-        text: getApiErrorMessage(error, 'Could not cancel the order.')
-      })
+      const conflictMessage = getApiErrorMessage(
+        error,
+        'Order status changed. Refresh and try again.'
+      )
+      if (error.response?.status === 409) {
+        await refreshOrderAfterConflict(orderId, conflictMessage)
+      } else setMessage({ color: 'red', text: conflictMessage })
       throw error
     } finally {
       setCancellingId(null)
+    }
+  }
+
+  const payOrder = async (orderId) => {
+    const operationId = ++orderSyncRequest.current
+    setProcessingId(orderId)
+    setMessage(null)
+    try {
+      const response = await orderApi.payOrder(user, orderId)
+      if (operationId === orderSyncRequest.current)
+        setOrders((current) =>
+          current.map((order) =>
+            order.id === response.data.id ? response.data : order
+          )
+        )
+      setMessage({ color: 'green', text: 'Simulated payment confirmed.' })
+      return response.data
+    } catch (error) {
+      handleLogError(error)
+      const conflictMessage = getApiErrorMessage(
+        error,
+        'Order status changed. Refresh and try again.'
+      )
+      if (error.response?.status === 409) {
+        await refreshOrderAfterConflict(orderId, conflictMessage)
+      } else setMessage({ color: 'red', text: conflictMessage })
+      throw error
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const refreshOrderAfterConflict = async (orderId, conflictMessage) => {
+    const refreshId = ++orderSyncRequest.current
+    orderSyncController.current?.abort()
+    const controller = new AbortController()
+    orderSyncController.current = controller
+    try {
+      const response = await orderApi.getOrder(user, orderId, controller.signal)
+      if (mounted.current && refreshId === orderSyncRequest.current) {
+        setOrders((current) =>
+          current.map((order) =>
+            order.id === response.data.id ? response.data : order
+          )
+        )
+        setMessage({ color: 'red', text: conflictMessage })
+      }
+    } catch (refreshError) {
+      if (refreshError.code === 'ERR_CANCELED') return
+      if (mounted.current && refreshId === orderSyncRequest.current) {
+        setMessage({
+          color: 'red',
+          text: `${conflictMessage} Could not refresh the latest order state.`
+        })
+      }
     }
   }
 
@@ -152,6 +219,8 @@ function UserPage() {
           isSubmitting={isSubmitting}
           resourcesAvailable={!resourceError}
           cancellingId={cancellingId}
+          processingId={processingId}
+          onPay={payOrder}
           onWarehouseChange={loadInventory}
           onCreate={createOrder}
           onCancel={cancelOrder}

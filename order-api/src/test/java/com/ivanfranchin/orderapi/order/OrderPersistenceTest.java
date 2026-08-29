@@ -21,6 +21,7 @@ import com.ivanfranchin.orderapi.warehouse.Warehouse;
 import com.ivanfranchin.orderapi.warehouse.WarehouseRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,11 +29,18 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
-@Import({OrderService.class, UserService.class, InventoryService.class})
+@Import({
+  OrderService.class,
+  UserService.class,
+  InventoryService.class,
+  OrderExpirationProcessor.class
+})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class OrderPersistenceTest {
@@ -43,8 +51,10 @@ class OrderPersistenceTest {
   @Autowired private WarehouseRepository warehouseRepository;
   @Autowired private InventoryRepository inventoryRepository;
   @Autowired private InventoryMovementRepository movementRepository;
+  @Autowired private OrderExpirationProcessor orderExpirationProcessor;
   @Autowired private EntityManager entityManager;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
   @Test
   @Transactional
@@ -160,6 +170,318 @@ class OrderPersistenceTest {
 
     assertThat(repeated.getStatus()).isEqualTo(OrderStatus.CANCELLED);
     assertThat(movementRepository.count()).isEqualTo(movements);
+  }
+
+  @Test
+  void paymentAndShipmentUpdateLifecycleAndInventoryAuditAtomically() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+
+    Order paid = orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
+    Order shipped = orderService.shipOrder(order.getId(), "admin", Role.ADMIN);
+
+    assertThat(paid.getPaidAt()).isNotNull();
+    assertThat(paid.getPaymentReference()).startsWith("PAY-");
+    assertThat(shipped.getStatus()).isEqualTo(OrderStatus.SHIPPED);
+    assertThat(shipped.getShippedAt()).isNotNull();
+    Inventory inventory = reloadInventory(fixture.first());
+    assertThat(inventory.getOnHand()).isEqualTo(8);
+    assertThat(inventory.getReserved()).isZero();
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.SHIPMENT)
+        .singleElement()
+        .satisfies(
+            movement -> {
+              assertThat(movement.getOnHandDelta()).isEqualTo(-2);
+              assertThat(movement.getReservedDelta()).isEqualTo(-2);
+              assertThat(movement.getReference()).isEqualTo(order.getId());
+              assertThat(movement.getReason()).isEqualTo("Sales order shipment");
+            });
+  }
+
+  @Test
+  void repeatedPaymentKeepsSameTimestampAndReferenceWithoutInventoryChanges() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    Order first = orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
+    Instant paidAt = first.getPaidAt();
+    String reference = first.getPaymentReference();
+    long movementCount = movementRepository.count();
+
+    Order repeated = orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
+
+    assertThat(repeated.getPaidAt()).isEqualTo(paidAt);
+    assertThat(repeated.getPaymentReference()).isEqualTo(reference);
+    assertThat(movementRepository.count()).isEqualTo(movementCount);
+    assertThat(reloadInventory(fixture.first()).getReserved()).isEqualTo(2);
+  }
+
+  @Test
+  void expirationProcessorUsesItsTransactionToReleaseDueReservation() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    ReflectionTestUtils.setField(order, "expiresAt", Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(order);
+
+    orderExpirationProcessor.process(order.getId());
+
+    Order expired = orderRepository.findDetailedById(order.getId()).orElseThrow();
+    assertThat(expired.getStatus()).isEqualTo(OrderStatus.EXPIRED);
+    assertThat(expired.getExpiredAt()).isNotNull();
+    assertThat(reloadInventory(fixture.first()).getReserved()).isZero();
+    assertThat(reloadInventory(fixture.first()).getOnHand()).isEqualTo(10);
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.RELEASE)
+        .singleElement()
+        .satisfies(
+            movement ->
+                assertThat(movement.getReason()).isEqualTo("Sales order reservation expired"));
+  }
+
+  @Test
+  void paymentAtOrAfterExpiryIsRejectedWithoutChangingOrder() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    ReflectionTestUtils.setField(order, "expiresAt", Instant.now());
+    orderRepository.saveAndFlush(order);
+
+    assertThatThrownBy(
+            () -> orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER))
+        .isInstanceOf(OrderExpiredException.class);
+    Order unchanged = orderRepository.findById(order.getId()).orElseThrow();
+    assertThat(unchanged.getStatus()).isEqualTo(OrderStatus.RESERVED);
+    assertThat(unchanged.getPaidAt()).isNull();
+    assertThat(unchanged.getPaymentReference()).isNull();
+  }
+
+  @Test
+  void repeatedShipmentIsIdempotentAfterReload() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
+
+    Order shipped = orderService.shipOrder(order.getId(), "admin", Role.ADMIN);
+    Instant shippedAt = shipped.getShippedAt();
+    long movementCount =
+        movementRepository.findAll().stream()
+            .filter(movement -> movement.getType() == InventoryMovementType.SHIPMENT)
+            .count();
+    entityManager.clear();
+    Order repeated = orderService.shipOrder(order.getId(), "admin", Role.ADMIN);
+    entityManager.clear();
+
+    Order reloaded = orderRepository.findDetailedById(order.getId()).orElseThrow();
+    assertThat(repeated.getShippedAt()).isEqualTo(shippedAt);
+    assertThat(reloaded.getShippedAt()).isEqualTo(shippedAt);
+    assertThat(reloadInventory(fixture.first()).getOnHand()).isEqualTo(8);
+    assertThat(reloadInventory(fixture.first()).getReserved()).isZero();
+    assertThat(
+            movementRepository.findAll().stream()
+                .filter(movement -> movement.getType() == InventoryMovementType.SHIPMENT))
+        .hasSize((int) movementCount);
+  }
+
+  @Test
+  void shipmentStillWorksAfterProductAndWarehouseAreInactive() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
+    Product product = productRepository.findById(fixture.first().getId()).orElseThrow();
+    product.setActive(false);
+    productRepository.saveAndFlush(product);
+    Warehouse warehouse = warehouseRepository.findById(fixture.warehouse().getId()).orElseThrow();
+    warehouse.setActive(false);
+    warehouseRepository.saveAndFlush(warehouse);
+
+    orderService.shipOrder(order.getId(), "admin", Role.ADMIN);
+    entityManager.clear();
+
+    assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.SHIPPED);
+    assertThat(reloadInventory(fixture.first()).getOnHand()).isEqualTo(8);
+  }
+
+  @Test
+  void multiItemShipmentRollsBackWhenLaterInventoryIsInvalid() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 2), fixture.user().getUsername());
+    orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
+    Inventory second = reloadInventory(fixture.second());
+    second.setReserved(0);
+    inventoryRepository.saveAndFlush(second);
+
+    assertThatThrownBy(() -> orderService.shipOrder(order.getId(), "admin", Role.ADMIN))
+        .isInstanceOf(InsufficientInventoryException.class);
+    entityManager.clear();
+
+    assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.PAID);
+    assertThat(orderRepository.findById(order.getId()).orElseThrow().getShippedAt()).isNull();
+    assertThat(reloadInventory(fixture.first()).getOnHand()).isEqualTo(10);
+    assertThat(reloadInventory(fixture.first()).getReserved()).isEqualTo(2);
+    assertThat(reloadInventory(fixture.second()).getOnHand()).isEqualTo(10);
+    assertThat(reloadInventory(fixture.second()).getReserved()).isZero();
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.SHIPMENT)
+        .isEmpty();
+  }
+
+  @Test
+  void notDueReservedOrderIsSkipped() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+
+    orderExpirationProcessor.process(order.getId());
+    entityManager.clear();
+
+    Order reloaded = orderRepository.findById(order.getId()).orElseThrow();
+    assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.RESERVED);
+    assertThat(reloaded.getExpiredAt()).isNull();
+    assertThat(reloadInventory(fixture.first()).getReserved()).isEqualTo(2);
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.RELEASE)
+        .isEmpty();
+  }
+
+  @Test
+  void terminalOrdersAreSkippedByExpirationProcessor() {
+    Fixture fixture = fixture(10, 10);
+    Order paid = orderService.createOrder(request(fixture, 1, 0), fixture.user().getUsername());
+    orderService.payOrder(paid.getId(), fixture.user().getUsername(), Role.USER);
+    Order shipped = orderService.createOrder(request(fixture, 1, 0), fixture.user().getUsername());
+    orderService.payOrder(shipped.getId(), fixture.user().getUsername(), Role.USER);
+    orderService.shipOrder(shipped.getId(), "admin", Role.ADMIN);
+    Order cancelled =
+        orderService.createOrder(request(fixture, 1, 0), fixture.user().getUsername());
+    orderService.cancelOrder(cancelled.getId(), fixture.user().getUsername(), Role.USER);
+    Order expired = orderService.createOrder(request(fixture, 1, 0), fixture.user().getUsername());
+    ReflectionTestUtils.setField(expired, "expiresAt", Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(expired);
+    orderExpirationProcessor.process(expired.getId());
+    long releases =
+        movementRepository.findAll().stream()
+            .filter(movement -> movement.getType() == InventoryMovementType.RELEASE)
+            .count();
+
+    orderExpirationProcessor.process(paid.getId());
+    orderExpirationProcessor.process(shipped.getId());
+    orderExpirationProcessor.process(cancelled.getId());
+    orderExpirationProcessor.process(expired.getId());
+
+    assertThat(
+            movementRepository.findAll().stream()
+                .filter(movement -> movement.getType() == InventoryMovementType.RELEASE))
+        .hasSize((int) releases);
+  }
+
+  @Test
+  void orderExpiresExactlyAtExpiresAtUsingInjectedClock() {
+    Instant now = Instant.parse("2026-02-01T00:00:00Z");
+    orderService.setClock(java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    ReflectionTestUtils.setField(order, "expiresAt", now);
+    orderRepository.saveAndFlush(order);
+
+    orderExpirationProcessor.process(order.getId());
+    entityManager.clear();
+
+    Order expired = orderRepository.findById(order.getId()).orElseThrow();
+    assertThat(expired.getStatus()).isEqualTo(OrderStatus.EXPIRED);
+    assertThat(expired.getExpiredAt()).isEqualTo(now);
+    assertThat(reloadInventory(fixture.first()).getOnHand()).isEqualTo(10);
+    assertThat(reloadInventory(fixture.first()).getReserved()).isZero();
+  }
+
+  @Test
+  void inactiveProductAndWarehouseDoNotBlockExpiration() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    Product product = productRepository.findById(fixture.first().getId()).orElseThrow();
+    product.setActive(false);
+    productRepository.saveAndFlush(product);
+    Warehouse warehouse = warehouseRepository.findById(fixture.warehouse().getId()).orElseThrow();
+    warehouse.setActive(false);
+    warehouseRepository.saveAndFlush(warehouse);
+    ReflectionTestUtils.setField(order, "expiresAt", Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(order);
+
+    orderExpirationProcessor.process(order.getId());
+
+    assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.EXPIRED);
+    assertThat(reloadInventory(fixture.first()).getReserved()).isZero();
+  }
+
+  @Test
+  void multiItemExpirationRollsBackWhenLaterInventoryIsInvalid() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 2), fixture.user().getUsername());
+    Inventory second = reloadInventory(fixture.second());
+    second.setReserved(0);
+    inventoryRepository.saveAndFlush(second);
+    ReflectionTestUtils.setField(order, "expiresAt", Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(order);
+
+    assertThatThrownBy(() -> orderExpirationProcessor.process(order.getId()))
+        .isInstanceOf(InsufficientInventoryException.class);
+    entityManager.clear();
+    assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.RESERVED);
+    assertThat(reloadInventory(fixture.first()).getReserved()).isEqualTo(2);
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.RELEASE)
+        .isEmpty();
+  }
+
+  @Test
+  void expirationMovementHasExactAuditValuesAndReason() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    ReflectionTestUtils.setField(order, "expiresAt", Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(order);
+
+    orderExpirationProcessor.process(order.getId());
+    entityManager.clear();
+
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.RELEASE)
+        .singleElement()
+        .satisfies(
+            movement -> {
+              assertThat(movement.getOnHandDelta()).isZero();
+              assertThat(movement.getReservedDelta()).isEqualTo(-2);
+              assertThat(movement.getOnHandBefore()).isEqualTo(10);
+              assertThat(movement.getOnHandAfter()).isEqualTo(10);
+              assertThat(movement.getReservedBefore()).isEqualTo(2);
+              assertThat(movement.getReservedAfter()).isZero();
+              assertThat(movement.getReference()).isEqualTo(order.getId());
+              assertThat(movement.getReason()).isEqualTo("Sales order reservation expired");
+            });
+  }
+
+  @Test
+  void expirationProcessorRunsInRequiresNewTransaction() {
+    Fixture fixture = fixture(10, 10);
+    Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
+    ReflectionTestUtils.setField(order, "expiresAt", Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(order);
+
+    new TransactionTemplate(transactionManager)
+        .executeWithoutResult(
+            status -> {
+              orderExpirationProcessor.process(order.getId());
+              status.setRollbackOnly();
+            });
+    entityManager.clear();
+
+    Order reloaded = orderRepository.findById(order.getId()).orElseThrow();
+    assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.EXPIRED);
+    assertThat(reloaded.getExpiredAt()).isNotNull();
+    assertThat(reloadInventory(fixture.first()).getReserved()).isZero();
+    assertThat(movementRepository.findAll())
+        .filteredOn(movement -> movement.getType() == InventoryMovementType.RELEASE)
+        .hasSize(1);
   }
 
   @Test

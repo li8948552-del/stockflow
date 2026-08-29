@@ -159,6 +159,42 @@ class OrderControllerTest {
         .andExpect(status().isMethodNotAllowed());
   }
 
+  @Test
+  void ownerCanConfirmPaymentAndResponseContainsLifecycleFields() throws Exception {
+    Order order = order("order-id", "alice");
+    order.markPaid(Instant.parse("2026-01-01T00:00:00Z"), "PAY-test");
+    when(orderService.payOrder("order-id", "alice", Role.USER)).thenReturn(order);
+
+    mockMvc
+        .perform(post("/api/orders/order-id/pay").with(user(principal("alice", Role.USER))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("PAID"))
+        .andExpect(jsonPath("$.paidAt").exists())
+        .andExpect(jsonPath("$.paymentReference").value("PAY-test"));
+  }
+
+  @Test
+  void adminCanShipAndUserCannotShip() throws Exception {
+    Order order = order("order-id", "alice");
+    order.markPaid(Instant.parse("2026-01-01T00:00:00Z"), "PAY-test");
+    order.markShipped(Instant.parse("2026-01-01T00:01:00Z"));
+    when(orderService.shipOrder("order-id", "admin", Role.ADMIN)).thenReturn(order);
+
+    mockMvc
+        .perform(post("/api/orders/order-id/ship").with(user(principal("admin", Role.ADMIN))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("SHIPPED"))
+        .andExpect(jsonPath("$.shippedAt").exists());
+    mockMvc
+        .perform(post("/api/orders/order-id/ship").with(user(principal("alice", Role.USER))))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void anonymousPaymentIsUnauthorized() throws Exception {
+    mockMvc.perform(post("/api/orders/order-id/pay")).andExpect(status().isUnauthorized());
+  }
+
   private CustomUserDetails principal(String username, Role role) {
     return new CustomUserDetails(
         1L,

@@ -41,6 +41,10 @@ class MoneyDtoSerializationTest {
                     new BigDecimal("12.30"))),
             new BigDecimal(maximum),
             Instant.parse("2026-01-01T00:30:00Z"),
+            null,
+            null,
+            null,
+            null,
             Instant.parse("2026-01-01T00:00:00Z"),
             Instant.parse("2026-01-01T00:00:00Z"),
             0L);
