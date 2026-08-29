@@ -3,9 +3,11 @@ package com.ivanfranchin.orderapi.rest.dto;
 import com.ivanfranchin.orderapi.order.Order;
 import com.ivanfranchin.orderapi.order.OrderItem;
 import com.ivanfranchin.orderapi.order.OrderStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import tools.jackson.databind.annotation.JsonSerialize;
 
 public record OrderDto(
     String id,
@@ -13,7 +15,9 @@ public record OrderDto(
     WarehouseSummary warehouse,
     OrderStatus status,
     List<Item> items,
-    BigDecimal totalAmount,
+    @Schema(type = "string", format = "decimal", example = "25.00")
+        @JsonSerialize(using = PlainBigDecimalSerializer.class)
+        BigDecimal totalAmount,
     Instant expiresAt,
     Instant createdAt,
     Instant updatedAt,
@@ -29,8 +33,12 @@ public record OrderDto(
       String productName,
       int lineNumber,
       long quantity,
-      BigDecimal unitPrice,
-      BigDecimal lineTotal) {
+      @Schema(type = "string", format = "decimal", example = "12.50")
+          @JsonSerialize(using = PlainBigDecimalSerializer.class)
+          BigDecimal unitPrice,
+      @Schema(type = "string", format = "decimal", example = "25.00")
+          @JsonSerialize(using = PlainBigDecimalSerializer.class)
+          BigDecimal lineTotal) {
     static Item from(OrderItem item) {
       return new Item(
           item.getId(),

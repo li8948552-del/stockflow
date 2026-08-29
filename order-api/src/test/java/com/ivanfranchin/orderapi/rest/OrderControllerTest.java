@@ -62,8 +62,9 @@ class OrderControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.status").value("RESERVED"))
         .andExpect(jsonPath("$.items[0].lineNumber").value(1))
-        .andExpect(jsonPath("$.items[0].unitPrice").value(12.50))
-        .andExpect(jsonPath("$.items[0].lineTotal").value(25.00))
+        .andExpect(jsonPath("$.items[0].unitPrice").value("12.50"))
+        .andExpect(jsonPath("$.items[0].lineTotal").value("25.00"))
+        .andExpect(jsonPath("$.totalAmount").value("25.00"))
         .andExpect(jsonPath("$.user.username").value("alice"))
         .andExpect(jsonPath("$.user.password").doesNotExist());
   }

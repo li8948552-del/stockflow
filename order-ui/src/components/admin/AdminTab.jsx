@@ -1,27 +1,9 @@
-import { Tabs, Box, LoadingOverlay } from '@mantine/core'
-import { IconUsers, IconDeviceLaptop } from '@tabler/icons-react'
+import { Box, LoadingOverlay, Tabs } from '@mantine/core'
+import { IconDeviceLaptop, IconUsers } from '@tabler/icons-react'
 import UserTable from './UserTable'
 import OrderTable from './OrderTable'
 
 function AdminTab(props) {
-  const { handleInputChange } = props
-  const {
-    isUsersLoading,
-    users,
-    userUsernameSearch,
-    handleDeleteUser,
-    handleSearchUser
-  } = props
-  const {
-    isOrdersLoading,
-    orders,
-    orderDescription,
-    orderTextSearch,
-    handleCreateOrder,
-    handleDeleteOrder,
-    handleSearchOrder
-  } = props
-
   return (
     <Tabs defaultValue='users' mt='md'>
       <Tabs.List>
@@ -32,32 +14,31 @@ function AdminTab(props) {
           Orders
         </Tabs.Tab>
       </Tabs.List>
-
       <Tabs.Panel value='users' pt='md'>
         <Box pos='relative'>
-          <LoadingOverlay visible={isUsersLoading} />
+          <LoadingOverlay visible={props.isUsersLoading} />
           <UserTable
-            users={users}
-            userUsernameSearch={userUsernameSearch}
-            handleInputChange={handleInputChange}
-            handleDeleteUser={handleDeleteUser}
-            handleSearchUser={handleSearchUser}
+            users={props.users}
+            userUsernameSearch={props.userUsernameSearch}
+            handleInputChange={props.handleInputChange}
+            handleDeleteUser={props.handleDeleteUser}
+            handleSearchUser={props.handleSearchUser}
           />
         </Box>
       </Tabs.Panel>
-
       <Tabs.Panel value='orders' pt='md'>
         <Box pos='relative'>
-          <LoadingOverlay visible={isOrdersLoading} />
+          <LoadingOverlay visible={props.isOrdersLoading} />
           <OrderTable
-            orders={orders}
-            isOrdersLoading={isOrdersLoading}
-            orderDescription={orderDescription}
-            orderTextSearch={orderTextSearch}
-            handleInputChange={handleInputChange}
-            handleCreateOrder={handleCreateOrder}
-            handleDeleteOrder={handleDeleteOrder}
-            handleSearchOrder={handleSearchOrder}
+            orders={props.orders}
+            users={props.users}
+            warehouses={props.warehouses}
+            filters={props.filters}
+            setFilters={props.setFilters}
+            handleSearchOrder={props.handleSearchOrder}
+            handleCancelOrder={props.handleCancelOrder}
+            cancellingId={props.cancellingId}
+            isOrdersLoading={props.isOrdersLoading}
           />
         </Box>
       </Tabs.Panel>
