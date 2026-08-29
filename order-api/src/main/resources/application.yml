@@ -18,6 +18,10 @@ app:
       minutes: 10
   cors:
     allowed-origins: http://localhost:3000
+  order-expiration:
+    enabled: true
+    interval-ms: 60000
+    batch-size: 100
 
 logging:
   level:

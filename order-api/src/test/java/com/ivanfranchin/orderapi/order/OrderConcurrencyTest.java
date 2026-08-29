@@ -39,6 +39,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -48,6 +49,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
   OrderService.class,
   UserService.class,
   InventoryService.class,
+  OrderExpirationProcessor.class,
   OrderConcurrencyTest.LockTestConfiguration.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -63,6 +65,7 @@ class OrderConcurrencyTest {
   @Autowired private InventoryService inventoryService;
   @Autowired private WarehouseLockCoordinator warehouseLockCoordinator;
   @Autowired private OrderLockCoordinator orderLockCoordinator;
+  @Autowired private OrderExpirationProcessor expirationProcessor;
 
   @AfterEach
   void clearCoordinator() {
@@ -219,6 +222,214 @@ class OrderConcurrencyTest {
         .filteredOn(movement -> movement.getType() == InventoryMovementType.RELEASE)
         .hasSize(2)
         .allSatisfy(movement -> assertThat(movement.getReference()).isEqualTo(order.getId()));
+  }
+
+  @Test
+  void doublePayIsIdempotentAndDoesNotTouchInventory() throws Exception {
+    Setup setup = setup(10);
+    Order order =
+        orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");
+    orderLockCoordinator.blockUntilReleased(2);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<Order> first =
+          executor.submit(() -> orderService.payOrder(order.getId(), "alice", Role.USER));
+      Future<Order> second =
+          executor.submit(() -> orderService.payOrder(order.getId(), "alice", Role.USER));
+      assertThat(orderLockCoordinator.awaitReached()).isTrue();
+      orderLockCoordinator.release();
+      Order paid1 = first.get(10, TimeUnit.SECONDS);
+      Order paid2 = second.get(10, TimeUnit.SECONDS);
+      assertThat(paid1.getStatus()).isEqualTo(OrderStatus.PAID);
+      assertThat(paid2.getStatus()).isEqualTo(OrderStatus.PAID);
+      assertThat(paid1.getPaymentReference()).isEqualTo(paid2.getPaymentReference());
+      assertThat(paid1.getPaidAt()).isEqualTo(paid2.getPaidAt());
+    } finally {
+      orderLockCoordinator.release();
+    }
+    Order persisted = orderRepository.findDetailedById(order.getId()).orElseThrow();
+    assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PAID);
+    assertThat(inventoryRepository.findById(setup.inventory().getId()).orElseThrow())
+        .satisfies(
+            i -> {
+              assertThat(i.getOnHand()).isEqualTo(10);
+              assertThat(i.getReserved()).isEqualTo(2);
+            });
+    assertThat(movementRepository.findAll())
+        .filteredOn(m -> m.getType() == InventoryMovementType.RESERVATION)
+        .hasSize(1);
+  }
+
+  @Test
+  void doubleExpirationProcessorReleasesOnlyOnce() throws Exception {
+    Setup setup = setup(10);
+    Order order =
+        orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");
+    ReflectionTestUtils.setField(order, "expiresAt", java.time.Instant.now().minusSeconds(1));
+    orderRepository.saveAndFlush(order);
+    orderLockCoordinator.blockUntilReleased(2);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<?> first = executor.submit(() -> expirationProcessor.process(order.getId()));
+      Future<?> second = executor.submit(() -> expirationProcessor.process(order.getId()));
+      assertThat(orderLockCoordinator.awaitReached()).isTrue();
+      orderLockCoordinator.release();
+      first.get(10, TimeUnit.SECONDS);
+      second.get(10, TimeUnit.SECONDS);
+    } finally {
+      orderLockCoordinator.release();
+    }
+    Order persisted = orderRepository.findDetailedById(order.getId()).orElseThrow();
+    assertThat(persisted.getStatus()).isEqualTo(OrderStatus.EXPIRED);
+    assertThat(inventoryRepository.findById(setup.inventory().getId()).orElseThrow().getReserved())
+        .isZero();
+    assertThat(movementRepository.findAll())
+        .filteredOn(m -> m.getType() == InventoryMovementType.RELEASE)
+        .hasSize(1);
+  }
+
+  @Test
+  void payAndCancelCompetitionHasSingleDeterministicWinner() throws Exception {
+    Setup setup = setup(10);
+    Order order =
+        orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");
+    orderLockCoordinator.blockUntilReleased(2);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<Object> pay =
+          executor.submit(
+              () -> capture(() -> orderService.payOrder(order.getId(), "alice", Role.USER)));
+      Future<Object> cancel =
+          executor.submit(
+              () -> capture(() -> orderService.cancelOrder(order.getId(), "alice", Role.USER)));
+      assertThat(orderLockCoordinator.awaitReached()).isTrue();
+      orderLockCoordinator.release();
+      Object first = pay.get(10, TimeUnit.SECONDS);
+      Object second = cancel.get(10, TimeUnit.SECONDS);
+      assertThat(List.of(first, second)).anyMatch(value -> value instanceof Order);
+      assertThat(List.of(first, second)).anyMatch(value -> value instanceof RuntimeException);
+    } finally {
+      orderLockCoordinator.release();
+    }
+    Order persisted = orderRepository.findDetailedById(order.getId()).orElseThrow();
+    assertThat(persisted.getStatus()).isIn(OrderStatus.PAID, OrderStatus.CANCELLED);
+    if (persisted.getStatus() == OrderStatus.PAID) {
+      assertThat(
+              inventoryRepository.findById(setup.inventory().getId()).orElseThrow().getReserved())
+          .isEqualTo(2);
+      assertThat(movementRepository.findAll())
+          .filteredOn(m -> m.getType() == InventoryMovementType.RELEASE)
+          .isEmpty();
+    } else {
+      assertThat(
+              inventoryRepository.findById(setup.inventory().getId()).orElseThrow().getReserved())
+          .isZero();
+      assertThat(movementRepository.findAll())
+          .filteredOn(m -> m.getType() == InventoryMovementType.RELEASE)
+          .hasSize(1);
+    }
+  }
+
+  private Object capture(java.util.concurrent.Callable<?> operation) {
+    try {
+      return operation.call();
+    } catch (Exception exception) {
+      return exception;
+    }
+  }
+
+  @Test
+  void doubleShipIsIdempotentAndDeductsInventoryOnce() throws Exception {
+    Setup setup = setup(10);
+    Order order =
+        orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");
+    orderService.payOrder(order.getId(), "alice", Role.USER);
+    orderLockCoordinator.blockUntilReleased(2);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<Order> first =
+          executor.submit(() -> orderService.shipOrder(order.getId(), "admin", Role.ADMIN));
+      Future<Order> second =
+          executor.submit(() -> orderService.shipOrder(order.getId(), "admin", Role.ADMIN));
+      assertThat(orderLockCoordinator.awaitReached()).isTrue();
+      orderLockCoordinator.release();
+      assertThat(first.get(10, TimeUnit.SECONDS).getStatus()).isEqualTo(OrderStatus.SHIPPED);
+      assertThat(second.get(10, TimeUnit.SECONDS).getStatus()).isEqualTo(OrderStatus.SHIPPED);
+    } finally {
+      orderLockCoordinator.release();
+    }
+    Inventory inventory = inventoryRepository.findById(setup.inventory().getId()).orElseThrow();
+    assertThat(inventory.getOnHand()).isEqualTo(8);
+    assertThat(inventory.getReserved()).isZero();
+    assertThat(movementRepository.findAll())
+        .filteredOn(m -> m.getType() == InventoryMovementType.SHIPMENT)
+        .hasSize(1);
+  }
+
+  @Test
+  void payAndExpirationCompetitionLeavesOneValidTerminalState() throws Exception {
+    Setup setup = setup(10);
+    Order order =
+        orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");
+    ReflectionTestUtils.setField(order, "expiresAt", java.time.Instant.now().plusSeconds(60));
+    orderRepository.saveAndFlush(order);
+    orderLockCoordinator.blockUntilReleased(2);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<Object> pay =
+          executor.submit(
+              () -> capture(() -> orderService.payOrder(order.getId(), "alice", Role.USER)));
+      Future<Object> expire =
+          executor.submit(
+              () ->
+                  capture(
+                      () -> {
+                        expirationProcessor.process(order.getId());
+                        return null;
+                      }));
+      assertThat(orderLockCoordinator.awaitReached()).isTrue();
+      orderLockCoordinator.release();
+      pay.get(10, TimeUnit.SECONDS);
+      expire.get(10, TimeUnit.SECONDS);
+    } finally {
+      orderLockCoordinator.release();
+    }
+    Order persisted = orderRepository.findDetailedById(order.getId()).orElseThrow();
+    assertThat(persisted.getStatus()).isIn(OrderStatus.PAID, OrderStatus.RESERVED);
+    if (persisted.getStatus() == OrderStatus.PAID) {
+      assertThat(persisted.getPaidAt()).isNotNull();
+      assertThat(
+              inventoryRepository.findById(setup.inventory().getId()).orElseThrow().getReserved())
+          .isEqualTo(2);
+    }
+  }
+
+  @Test
+  void shipmentAndReceiptPreserveBothDeltas() throws Exception {
+    Setup setup = setup(10);
+    Order order =
+        orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");
+    orderService.payOrder(order.getId(), "alice", Role.USER);
+    warehouseLockCoordinator.blockUntilReleased(2);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<Order> ship =
+          executor.submit(() -> orderService.shipOrder(order.getId(), "admin", Role.ADMIN));
+      Future<Inventory> receipt =
+          executor.submit(
+              () ->
+                  inventoryService.receive(
+                      setup.first().getId(), setup.warehouse().getId(), 5, "PO", "admin"));
+      assertThat(warehouseLockCoordinator.awaitReached()).isTrue();
+      warehouseLockCoordinator.release();
+      assertThat(ship.get(10, TimeUnit.SECONDS).getStatus()).isEqualTo(OrderStatus.SHIPPED);
+      receipt.get(10, TimeUnit.SECONDS);
+    } finally {
+      warehouseLockCoordinator.release();
+    }
+    Inventory inventory = inventoryRepository.findById(setup.inventory().getId()).orElseThrow();
+    assertThat(inventory.getOnHand()).isEqualTo(13);
+    assertThat(inventory.getReserved()).isZero();
+    assertThat(movementRepository.findAll())
+        .filteredOn(m -> m.getType() == InventoryMovementType.SHIPMENT)
+        .hasSize(1);
+    assertThat(movementRepository.findAll())
+        .filteredOn(m -> m.getType() == InventoryMovementType.RECEIPT)
+        .hasSize(1);
   }
 
   private Order cancelAfterBarrier(

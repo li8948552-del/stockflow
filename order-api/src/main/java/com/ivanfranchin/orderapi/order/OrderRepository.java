@@ -1,8 +1,10 @@
 package com.ivanfranchin.orderapi.order;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -35,4 +37,9 @@ public interface OrderRepository extends JpaRepository<Order, String> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select o from Order o where o.id = :id")
   Optional<Order> findByIdForUpdate(@Param("id") String id);
+
+  @Query(
+      "select o.id from Order o where o.status = :status and o.expiresAt <= :now order by o.expiresAt asc, o.id asc")
+  List<String> findExpiredIds(
+      @Param("status") OrderStatus status, @Param("now") Instant now, Pageable pageable);
 }

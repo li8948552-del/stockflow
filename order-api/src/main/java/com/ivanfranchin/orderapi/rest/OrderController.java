@@ -69,6 +69,24 @@ public class OrderController {
     return OrderDto.from(order);
   }
 
+  @Operation(
+      summary = "Simulated payment confirmation",
+      description = "Demo-only payment confirmation; no payment gateway is contacted.",
+      security = {@SecurityRequirement(name = BEARER_KEY_SECURITY_SCHEME)})
+  @PostMapping("/{id}/pay")
+  public OrderDto payOrder(
+      @PathVariable String id, @AuthenticationPrincipal CustomUserDetails currentUser) {
+    return OrderDto.from(orderService.payOrder(id, currentUser.getUsername(), roleOf(currentUser)));
+  }
+
+  @Operation(security = {@SecurityRequirement(name = BEARER_KEY_SECURITY_SCHEME)})
+  @PostMapping("/{id}/ship")
+  public OrderDto shipOrder(
+      @PathVariable String id, @AuthenticationPrincipal CustomUserDetails currentUser) {
+    return OrderDto.from(
+        orderService.shipOrder(id, currentUser.getUsername(), roleOf(currentUser)));
+  }
+
   private Role roleOf(CustomUserDetails user) {
     return user.getAuthorities().stream()
         .map(authority -> Role.valueOf(authority.getAuthority()))

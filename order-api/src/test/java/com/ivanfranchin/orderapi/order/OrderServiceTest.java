@@ -16,6 +16,7 @@ import com.ivanfranchin.orderapi.user.User;
 import com.ivanfranchin.orderapi.user.UserService;
 import com.ivanfranchin.orderapi.warehouse.Warehouse;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -159,6 +160,40 @@ class OrderServiceTest {
   void adminListSupportsFilters() {
     orderService.getOrders("admin", Role.ADMIN, 99L, OrderStatus.CANCELLED, "warehouse-id");
     verify(orderRepository).findOrders(null, 99L, OrderStatus.CANCELLED, "warehouse-id");
+  }
+
+  @Test
+  void ownerCanConfirmSimulatedPaymentAndRepeatedPaymentIsIdempotent() {
+    Order order = order("order-id", user);
+    when(orderRepository.findByIdForUpdate("order-id")).thenReturn(Optional.of(order));
+    when(orderRepository.findDetailedById("order-id")).thenReturn(Optional.of(order));
+    when(orderRepository.saveAndFlush(order)).thenReturn(order);
+
+    Order paid = orderService.payOrder("order-id", "alice", Role.USER);
+    String reference = paid.getPaymentReference();
+    Order repeated = orderService.payOrder("order-id", "alice", Role.USER);
+
+    assertThat(paid.getStatus()).isEqualTo(OrderStatus.PAID);
+    assertThat(paid.getPaidAt()).isNotNull();
+    assertThat(reference).startsWith("PAY-");
+    assertThat(repeated.getPaymentReference()).isEqualTo(reference);
+    verify(orderRepository).saveAndFlush(order);
+  }
+
+  @Test
+  void adminCanShipPaidOrderThroughInventoryService() {
+    Order order = order("order-id", user);
+    order.markPaid(Instant.now().minusSeconds(1), "PAY-test");
+    when(orderRepository.findByIdForUpdate("order-id")).thenReturn(Optional.of(order));
+    when(orderRepository.findDetailedById("order-id")).thenReturn(Optional.of(order));
+    when(orderRepository.saveAndFlush(order)).thenReturn(order);
+
+    Order shipped = orderService.shipOrder("order-id", "admin", Role.ADMIN);
+
+    assertThat(shipped.getStatus()).isEqualTo(OrderStatus.SHIPPED);
+    assertThat(shipped.getShippedAt()).isNotNull();
+    verify(inventoryService)
+        .shipForOrder("warehouse-id", Map.of("product-id", 2L), "order-id", "admin");
   }
 
   private Order order(String id, User owner) {

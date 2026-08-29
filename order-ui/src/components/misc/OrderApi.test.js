@@ -37,6 +37,23 @@ describe('OrderApi', () => {
     expect(mocks.delete).not.toHaveBeenCalled()
   })
 
+  it('uses simulated payment and shipment POST endpoints', () => {
+    orderApi.payOrder(user, 'o1')
+    orderApi.shipOrder(user, 'o1')
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/orders/o1/pay',
+      null,
+      expect.any(Object)
+    )
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/orders/o1/ship',
+      null,
+      expect.any(Object)
+    )
+  })
+
   it('passes only supported order filters as query parameters', () => {
     const params = { userId: '1', status: 'RESERVED', warehouseId: 'w1' }
     const controller = new AbortController()

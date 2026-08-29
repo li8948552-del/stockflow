@@ -58,6 +58,15 @@ public class Order {
   @Column(nullable = false)
   private Instant updatedAt;
 
+  private Instant paidAt;
+
+  private Instant shippedAt;
+
+  private Instant expiredAt;
+
+  @Column(length = 64, nullable = true)
+  private String paymentReference;
+
   @Version
   @Column(nullable = false)
   private Long version;
@@ -94,6 +103,35 @@ public class Order {
     status = OrderStatus.CANCELLED;
   }
 
+  public void markPaid(Instant paidAt, String paymentReference) {
+    if (status == OrderStatus.PAID) return;
+    if (status != OrderStatus.RESERVED) {
+      throw new InvalidOrderStatusException("Order in status %s cannot be paid".formatted(status));
+    }
+    this.status = OrderStatus.PAID;
+    this.paidAt = paidAt;
+    this.paymentReference = paymentReference;
+  }
+
+  public void markShipped(Instant shippedAt) {
+    if (status == OrderStatus.SHIPPED) return;
+    if (status != OrderStatus.PAID) {
+      throw new InvalidOrderStatusException(
+          "Order in status %s cannot be shipped".formatted(status));
+    }
+    this.status = OrderStatus.SHIPPED;
+    this.shippedAt = shippedAt;
+  }
+
+  public void markExpired(Instant expiredAt) {
+    if (status == OrderStatus.EXPIRED) return;
+    if (status != OrderStatus.RESERVED) {
+      throw new InvalidOrderStatusException("Order in status %s cannot expire".formatted(status));
+    }
+    this.status = OrderStatus.EXPIRED;
+    this.expiredAt = expiredAt;
+  }
+
   public boolean isOwnedBy(String username) {
     return user != null && user.getUsername().equals(username);
   }
@@ -119,6 +157,19 @@ public class Order {
     }
     if (items == null || items.isEmpty()) {
       throw new EmptyOrderException("Order must contain at least one item");
+    }
+    if (status == OrderStatus.PAID && paidAt == null) {
+      throw new IllegalStateException("Paid orders require paidAt");
+    }
+    if (status == OrderStatus.SHIPPED && (paidAt == null || shippedAt == null)) {
+      throw new IllegalStateException("Shipped orders require paidAt and shippedAt");
+    }
+    if (status == OrderStatus.EXPIRED && expiredAt == null) {
+      throw new IllegalStateException("Expired orders require expiredAt");
+    }
+    if (status == OrderStatus.RESERVED
+        && (paidAt != null || shippedAt != null || expiredAt != null)) {
+      throw new IllegalStateException("Reserved orders cannot have lifecycle timestamps");
     }
     Money.requireDatabaseValue(totalAmount, "totalAmount");
   }
