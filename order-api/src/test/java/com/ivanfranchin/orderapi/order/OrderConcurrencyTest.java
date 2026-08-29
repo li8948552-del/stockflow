@@ -226,6 +226,9 @@ class OrderConcurrencyTest {
 
   @Test
   void doublePayIsIdempotentAndDoesNotTouchInventory() throws Exception {
+    orderService.setClock(
+        java.time.Clock.fixed(
+            java.time.Instant.parse("2026-02-01T00:00:00.123456789Z"), java.time.ZoneOffset.UTC));
     Setup setup = setup(10);
     Order order =
         orderService.createOrder(request(setup, List.of(setup.first()), List.of(2L)), "alice");

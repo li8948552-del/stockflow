@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.supplier;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.validation.BusinessCode;
 import com.ivanfranchin.orderapi.validation.ValidBusinessCode;
 import jakarta.persistence.Column;
@@ -70,7 +71,7 @@ public class Supplier {
   public void onPrePersist() {
     if (id == null) id = UUID.randomUUID().toString();
     supplierCode = BusinessCode.normalizeAndValidate(supplierCode, CODE_MAX_LENGTH);
-    Instant now = Instant.now();
+    Instant now = TimePrecision.databasePrecision(Instant.now());
     if (createdAt == null) createdAt = now;
     updatedAt = now;
   }
@@ -78,7 +79,7 @@ public class Supplier {
   @PreUpdate
   public void onPreUpdate() {
     supplierCode = BusinessCode.normalizeAndValidate(supplierCode, CODE_MAX_LENGTH);
-    updatedAt = Instant.now();
+    updatedAt = TimePrecision.databasePrecision(Instant.now());
   }
 
   public void setSupplierCode(String supplierCode) {

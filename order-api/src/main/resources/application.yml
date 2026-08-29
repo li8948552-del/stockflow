@@ -3,7 +3,13 @@ spring:
     name: stockflow-api
   jpa:
     hibernate:
-      ddl-auto: create
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
+    baseline-on-migrate: false
   datasource:
     url: jdbc:postgresql://localhost:5432/orderdb
     username: postgres
