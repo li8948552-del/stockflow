@@ -1,12 +1,38 @@
 package com.ivanfranchin.orderapi.order;
 
+import jakarta.persistence.LockModeType;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface OrderRepository extends JpaRepository<Order, String> {
+  @EntityGraph(attributePaths = {"user", "warehouse", "items", "items.product"})
+  @Query(
+      """
+      select distinct o from Order o
+      where (:username is null or o.user.username = :username)
+        and (:userId is null or o.user.id = :userId)
+        and (:status is null or o.status = :status)
+        and (:warehouseId is null or o.warehouse.id = :warehouseId)
+      order by o.createdAt desc, o.id desc
+      """)
+  List<Order> findOrders(
+      @Param("username") String username,
+      @Param("userId") Long userId,
+      @Param("status") OrderStatus status,
+      @Param("warehouseId") String warehouseId);
 
-  List<Order> findAllByOrderByCreatedAtDesc();
+  @EntityGraph(attributePaths = {"user", "warehouse", "items", "items.product"})
+  @Query("select o from Order o where o.id = :id")
+  Optional<Order> findDetailedById(@Param("id") String id);
 
-  List<Order> findByIdContainingOrDescriptionContainingIgnoreCaseOrderByCreatedAt(
-      String id, String description);
+  boolean existsByUserId(Long userId);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select o from Order o where o.id = :id")
+  Optional<Order> findByIdForUpdate(@Param("id") String id);
 }

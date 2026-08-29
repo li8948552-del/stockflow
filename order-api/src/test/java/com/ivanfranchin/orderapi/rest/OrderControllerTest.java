@@ -1,6 +1,7 @@
 package com.ivanfranchin.orderapi.rest;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -10,19 +11,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ivanfranchin.orderapi.order.Order;
-import com.ivanfranchin.orderapi.order.OrderNotFoundException;
 import com.ivanfranchin.orderapi.order.OrderService;
+import com.ivanfranchin.orderapi.product.Product;
+import com.ivanfranchin.orderapi.rest.dto.CreateOrderItemRequest;
 import com.ivanfranchin.orderapi.rest.dto.CreateOrderRequest;
 import com.ivanfranchin.orderapi.security.CustomUserDetails;
 import com.ivanfranchin.orderapi.security.Role;
 import com.ivanfranchin.orderapi.security.SecurityConfig;
 import com.ivanfranchin.orderapi.security.TokenProvider;
 import com.ivanfranchin.orderapi.user.User;
-import com.ivanfranchin.orderapi.user.UserNotFoundException;
-import com.ivanfranchin.orderapi.user.UserService;
+import com.ivanfranchin.orderapi.warehouse.Warehouse;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -30,208 +31,157 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
 @WebMvcTest(OrderController.class)
 @Import(SecurityConfig.class)
 class OrderControllerTest {
-
   @Autowired private MockMvc mockMvc;
-
   @Autowired private JsonMapper jsonMapper;
-
   @MockitoBean private OrderService orderService;
-
-  @MockitoBean private UserService userService;
-
   @MockitoBean private UserDetailsService userDetailsService;
-
   @MockitoBean private TokenProvider tokenProvider;
 
-  private User buildUser(String username, Role role) {
-    User user = new User(username, "pass", "Test User", username + "@example.com", role);
-    user.setId(1L);
-    return user;
-  }
-
-  private Order buildOrder(String id, String description, User user) {
-    Order order = new Order(description);
-    order.setId(id);
-    order.setUser(user);
-    order.setCreatedAt(Instant.now());
-    return order;
-  }
-
-  private CustomUserDetails buildCustomUserDetails(String username, Role role) {
-    return new CustomUserDetails(
-        1L,
-        username,
-        "pass",
-        "Test User",
-        username + "@example.com",
-        List.of(new SimpleGrantedAuthority(role.name())));
-  }
-
-  // -- GET /api/orders --
-
   @Test
-  @WithMockUser(username = "admin", authorities = "ADMIN")
-  void getOrders_returns200AsAdmin() throws Exception {
-    User user = buildUser("admin", Role.ADMIN);
-    Order order = buildOrder("id-1", "Buy iPhone", user);
-    when(orderService.getOrders()).thenReturn(List.of(order));
-
-    mockMvc
-        .perform(get("/api/orders"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].description").value("Buy iPhone"));
-  }
-
-  @Test
-  @WithMockUser(username = "admin", authorities = "ADMIN")
-  void getOrders_withTextParam_returns200AsAdmin() throws Exception {
-    User user = buildUser("admin", Role.ADMIN);
-    Order order = buildOrder("id-1", "Buy iPhone", user);
-    when(orderService.getOrdersContainingText("iphone")).thenReturn(List.of(order));
-
-    mockMvc
-        .perform(get("/api/orders").param("text", "iphone"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(1));
-  }
-
-  @Test
-  @WithMockUser(username = "user", authorities = "USER")
-  void getOrders_returns403AsUser() throws Exception {
-    mockMvc.perform(get("/api/orders")).andExpect(status().isForbidden());
-  }
-
-  @Test
-  void getOrders_returns401WhenUnauthenticated() throws Exception {
-    mockMvc.perform(get("/api/orders")).andExpect(status().isUnauthorized());
-  }
-
-  // -- POST /api/orders --
-
-  @Test
-  void createOrder_returns201AsAdmin() throws Exception {
-    User user = buildUser("admin", Role.ADMIN);
-    CustomUserDetails adminDetails = buildCustomUserDetails("admin", Role.ADMIN);
-    CreateOrderRequest request = new CreateOrderRequest("Buy two iPhones");
-    Order savedOrder = buildOrder(UUID.randomUUID().toString(), "Buy two iPhones", user);
-
-    when(userService.validateAndGetUserByUsername("admin")).thenReturn(user);
-    when(orderService.saveOrder(any(Order.class))).thenReturn(savedOrder);
+  void authenticatedUserCanCreateAndDtoDoesNotLeakPassword() throws Exception {
+    Order order = order("order-id", "alice");
+    when(orderService.createOrder(any(CreateOrderRequest.class), eq("alice"))).thenReturn(order);
+    CreateOrderRequest request =
+        new CreateOrderRequest(
+            "warehouse-id", List.of(new CreateOrderItemRequest("product-id", 2L)));
 
     mockMvc
         .perform(
             post("/api/orders")
-                .with(user(adminDetails))
+                .with(user(principal("alice", Role.USER)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(jsonMapper.writeValueAsString(request)))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.description").value("Buy two iPhones"));
+        .andExpect(jsonPath("$.status").value("RESERVED"))
+        .andExpect(jsonPath("$.items[0].lineNumber").value(1))
+        .andExpect(jsonPath("$.items[0].unitPrice").value("12.50"))
+        .andExpect(jsonPath("$.items[0].lineTotal").value("25.00"))
+        .andExpect(jsonPath("$.totalAmount").value("25.00"))
+        .andExpect(jsonPath("$.user.username").value("alice"))
+        .andExpect(jsonPath("$.user.password").doesNotExist());
   }
 
   @Test
-  void createOrder_returns201AsUser() throws Exception {
-    User user = buildUser("user", Role.USER);
-    CustomUserDetails userDetails = buildCustomUserDetails("user", Role.USER);
-    CreateOrderRequest request = new CreateOrderRequest("Buy MacBook");
-    Order savedOrder = buildOrder(UUID.randomUUID().toString(), "Buy MacBook", user);
-
-    when(userService.validateAndGetUserByUsername("user")).thenReturn(user);
-    when(orderService.saveOrder(any(Order.class))).thenReturn(savedOrder);
+  void clientLineNumberCannotOverrideServerGeneratedValue() throws Exception {
+    Order order = order("order-id", "alice");
+    when(orderService.createOrder(any(CreateOrderRequest.class), eq("alice"))).thenReturn(order);
 
     mockMvc
         .perform(
             post("/api/orders")
-                .with(user(userDetails))
+                .with(user(principal("alice", Role.USER)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonMapper.writeValueAsString(request)))
+                .content(
+                    """
+                    {"warehouseId":"warehouse-id","items":[{
+                      "productId":"product-id","quantity":2,"lineNumber":99
+                    }]}
+                    """))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.description").value("Buy MacBook"));
+        .andExpect(jsonPath("$.items[0].lineNumber").value(1));
   }
 
   @Test
-  @WithMockUser(username = "user", authorities = "USER")
-  void createOrder_returns400WhenDescriptionBlank() throws Exception {
-    CreateOrderRequest request = new CreateOrderRequest("");
-
+  void createValidatesEmptyItemsAndNonpositiveQuantity() throws Exception {
     mockMvc
         .perform(
             post("/api/orders")
+                .with(user(principal("alice", Role.USER)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonMapper.writeValueAsString(request)))
+                .content("{\"warehouseId\":\"warehouse-id\",\"items\":[]}"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            post("/api/orders")
+                .with(user(principal("alice", Role.USER)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"warehouseId\":\"warehouse-id\",\"items\":[{\"productId\":\"product-id\",\"quantity\":0}]}"))
         .andExpect(status().isBadRequest());
   }
 
   @Test
-  void createOrder_returns401WhenUnauthenticated() throws Exception {
-    CreateOrderRequest request = new CreateOrderRequest("Buy iPhone");
+  void userCanReadListAndSingleOrder() throws Exception {
+    Order order = order("order-id", "alice");
+    when(orderService.getOrders("alice", Role.USER, null, null, null)).thenReturn(List.of(order));
+    when(orderService.getOrder("order-id", "alice", Role.USER)).thenReturn(order);
 
+    mockMvc
+        .perform(get("/api/orders").with(user(principal("alice", Role.USER))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value("order-id"));
+    mockMvc
+        .perform(get("/api/orders/order-id").with(user(principal("alice", Role.USER))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value("order-id"));
+  }
+
+  @Test
+  void adminFiltersAndCancelsAnyOrder() throws Exception {
+    Order order = order("order-id", "alice");
+    when(orderService.getOrders("admin", Role.ADMIN, 1L, null, "warehouse-id"))
+        .thenReturn(List.of(order));
+    order.cancel();
+    when(orderService.cancelOrder("order-id", "admin", Role.ADMIN)).thenReturn(order);
+
+    mockMvc
+        .perform(
+            get("/api/orders")
+                .with(user(principal("admin", Role.ADMIN)))
+                .param("userId", "1")
+                .param("warehouseId", "warehouse-id"))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(post("/api/orders/order-id/cancel").with(user(principal("admin", Role.ADMIN))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("CANCELLED"));
+  }
+
+  @Test
+  void anonymousRequestsReturn401AndDeleteIsNotExposed() throws Exception {
+    mockMvc.perform(get("/api/orders")).andExpect(status().isUnauthorized());
     mockMvc
         .perform(
             post("/api/orders")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonMapper.writeValueAsString(request)))
+                .content("{\"warehouseId\":\"warehouse-id\",\"items\":[]}"))
         .andExpect(status().isUnauthorized());
-  }
-
-  @Test
-  void createOrder_returns404WhenUserDeletedMidFlight() throws Exception {
-    CustomUserDetails ghostUser = buildCustomUserDetails("ghost", Role.USER);
-    CreateOrderRequest request = new CreateOrderRequest("Buy iPhone");
-
-    when(userService.validateAndGetUserByUsername("ghost"))
-        .thenThrow(new UserNotFoundException("User with username ghost not found"));
-
     mockMvc
-        .perform(
-            post("/api/orders")
-                .with(user(ghostUser))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonMapper.writeValueAsString(request)))
-        .andExpect(status().isNotFound());
+        .perform(delete("/api/orders/order-id").with(user(principal("admin", Role.ADMIN))))
+        .andExpect(status().isMethodNotAllowed());
   }
 
-  // -- DELETE /api/orders/{id} --
-
-  @Test
-  @WithMockUser(username = "admin", authorities = "ADMIN")
-  void deleteOrder_returns204WhenFoundAsAdmin() throws Exception {
-    User user = buildUser("admin", Role.ADMIN);
-    String id = UUID.randomUUID().toString();
-    Order order = buildOrder(id, "Buy iPhone", user);
-    when(orderService.validateAndGetOrder(id)).thenReturn(order);
-
-    mockMvc.perform(delete("/api/orders/" + id)).andExpect(status().isNoContent());
+  private CustomUserDetails principal(String username, Role role) {
+    return new CustomUserDetails(
+        1L,
+        username,
+        "secret",
+        username,
+        username + "@example.com",
+        List.of(new SimpleGrantedAuthority(role.name())));
   }
 
-  @Test
-  @WithMockUser(username = "admin", authorities = "ADMIN")
-  void deleteOrder_returns404WhenNotFound() throws Exception {
-    String id = UUID.randomUUID().toString();
-    when(orderService.validateAndGetOrder(id))
-        .thenThrow(new OrderNotFoundException("Order with id " + id + " not found"));
-
-    mockMvc.perform(delete("/api/orders/" + id)).andExpect(status().isNotFound());
-  }
-
-  @Test
-  @WithMockUser(username = "user", authorities = "USER")
-  void deleteOrder_returns403AsUser() throws Exception {
-    mockMvc.perform(delete("/api/orders/" + UUID.randomUUID())).andExpect(status().isForbidden());
-  }
-
-  @Test
-  void deleteOrder_returns401WhenUnauthenticated() throws Exception {
-    mockMvc
-        .perform(delete("/api/orders/" + UUID.randomUUID()))
-        .andExpect(status().isUnauthorized());
+  private Order order(String id, String username) {
+    User owner = new User(username, "secret", username, username + "@example.com", Role.USER);
+    owner.setId(1L);
+    Warehouse warehouse = new Warehouse("WH-1", "Main", "Sydney");
+    ReflectionTestUtils.setField(warehouse, "id", "warehouse-id");
+    Product product = new Product("SKU-1", "Widget", new BigDecimal("12.50"), 5);
+    ReflectionTestUtils.setField(product, "id", "product-id");
+    Order order = new Order(id, owner, warehouse, Instant.now().plusSeconds(1800));
+    order.addItem(product, 2, 1);
+    ReflectionTestUtils.setField(order, "createdAt", Instant.now());
+    ReflectionTestUtils.setField(order, "updatedAt", Instant.now());
+    ReflectionTestUtils.setField(order, "version", 0L);
+    ReflectionTestUtils.setField(order.getItems().getFirst(), "id", "item-id");
+    return order;
   }
 }

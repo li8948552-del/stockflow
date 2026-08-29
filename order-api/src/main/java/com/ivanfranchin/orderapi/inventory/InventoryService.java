@@ -7,12 +7,15 @@ import com.ivanfranchin.orderapi.validation.BusinessText;
 import com.ivanfranchin.orderapi.warehouse.Warehouse;
 import com.ivanfranchin.orderapi.warehouse.WarehouseNotFoundException;
 import com.ivanfranchin.orderapi.warehouse.WarehouseRepository;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @RequiredArgsConstructor
@@ -93,6 +96,7 @@ public class InventoryService {
             ? InventoryMovementType.ADJUSTMENT_IN
             : InventoryMovementType.ADJUSTMENT_OUT,
         quantityDelta,
+        0,
         before,
         after,
         saved.getReserved(),
@@ -111,6 +115,7 @@ public class InventoryService {
         saved,
         InventoryMovementType.INITIAL_STOCK,
         quantity,
+        0,
         0,
         quantity,
         0,
@@ -131,6 +136,7 @@ public class InventoryService {
         saved,
         InventoryMovementType.RECEIPT,
         quantity,
+        0,
         before,
         after,
         saved.getReserved(),
@@ -185,7 +191,8 @@ public class InventoryService {
   private void saveMovement(
       Inventory inventory,
       InventoryMovementType type,
-      long quantityDelta,
+      long onHandDelta,
+      long reservedDelta,
       long onHandBefore,
       long onHandAfter,
       long reservedBefore,
@@ -197,7 +204,8 @@ public class InventoryService {
         InventoryMovement.create(
             inventory,
             type,
-            quantityDelta,
+            onHandDelta,
+            reservedDelta,
             onHandBefore,
             onHandAfter,
             reservedBefore,
@@ -206,6 +214,110 @@ public class InventoryService {
             reason,
             createdBy));
   }
+
+  /** Joins the caller's order transaction and follows Warehouse, Product, Inventory lock order. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public ReservationBatch reserveForOrder(
+      String warehouseId, Map<String, Long> requested, String orderId, String createdBy) {
+    validateCreatedBy(createdBy);
+    Warehouse warehouse = getWarehouseForUpdate(warehouseId);
+    if (!warehouse.isActive()) {
+      throw new InactiveInventoryReferenceException(
+          "Warehouse with id %s is inactive".formatted(warehouseId));
+    }
+    List<String> productIds = requested.keySet().stream().sorted().toList();
+    List<Product> products = new ArrayList<>();
+    for (String productId : productIds) {
+      Product product = getProductForUpdate(productId);
+      if (!product.isActive()) {
+        throw new InactiveInventoryReferenceException(
+            "Product with id %s is inactive".formatted(productId));
+      }
+      products.add(product);
+    }
+    List<Inventory> inventories = new ArrayList<>();
+    for (String productId : productIds) {
+      inventories.add(getInventoryForUpdate(productId, warehouseId));
+    }
+    List<ReservedProduct> results = new ArrayList<>();
+    for (int index = 0; index < productIds.size(); index++) {
+      Product product = products.get(index);
+      Inventory inventory = inventories.get(index);
+      long quantity = requested.get(product.getId());
+      long before = inventory.getReserved();
+      long after = addExact(before, quantity);
+      if (after > inventory.getOnHand()) {
+        throw new InsufficientInventoryException(
+            "Insufficient available inventory for product %s".formatted(product.getId()));
+      }
+      inventory.setReserved(after);
+      Inventory saved = saveInventory(inventory);
+      saveMovement(
+          saved,
+          InventoryMovementType.RESERVATION,
+          0,
+          quantity,
+          saved.getOnHand(),
+          saved.getOnHand(),
+          before,
+          after,
+          orderId,
+          "Sales order reservation",
+          createdBy);
+      results.add(new ReservedProduct(product, quantity));
+    }
+    return new ReservationBatch(warehouse, List.copyOf(results));
+  }
+
+  /** Joins the caller's cancellation transaction and uses the same global lock order. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void releaseForOrder(
+      String warehouseId, Map<String, Long> quantities, String orderId, String createdBy) {
+    validateCreatedBy(createdBy);
+    getWarehouseForUpdate(warehouseId);
+    List<String> productIds = quantities.keySet().stream().sorted().toList();
+    for (String productId : productIds) getProductForUpdate(productId);
+    List<Inventory> inventories = new ArrayList<>();
+    for (String productId : productIds) {
+      inventories.add(getInventoryForUpdate(productId, warehouseId));
+    }
+    for (Inventory inventory : inventories) {
+      long quantity = quantities.get(inventory.getProduct().getId());
+      long before = inventory.getReserved();
+      if (quantity > before) {
+        throw new InsufficientInventoryException("Reservation release exceeds reserved quantity");
+      }
+      long after = before - quantity;
+      inventory.setReserved(after);
+      Inventory saved = saveInventory(inventory);
+      saveMovement(
+          saved,
+          InventoryMovementType.RELEASE,
+          0,
+          -quantity,
+          saved.getOnHand(),
+          saved.getOnHand(),
+          before,
+          after,
+          orderId,
+          "Sales order cancellation",
+          createdBy);
+    }
+  }
+
+  private Inventory getInventoryForUpdate(String productId, String warehouseId) {
+    return inventoryRepository
+        .findByProductIdAndWarehouseIdForUpdate(productId, warehouseId)
+        .orElseThrow(
+            () ->
+                new InventoryNotFoundException(
+                    "Inventory for product %s and warehouse %s not found"
+                        .formatted(productId, warehouseId)));
+  }
+
+  public record ReservedProduct(Product product, long quantity) {}
+
+  public record ReservationBatch(Warehouse warehouse, List<ReservedProduct> products) {}
 
   private long addExact(long current, long delta) {
     try {

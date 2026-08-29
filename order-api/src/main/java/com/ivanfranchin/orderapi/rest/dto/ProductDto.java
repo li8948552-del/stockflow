@@ -1,14 +1,18 @@
 package com.ivanfranchin.orderapi.rest.dto;
 
 import com.ivanfranchin.orderapi.product.Product;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
+import tools.jackson.databind.annotation.JsonSerialize;
 
 public record ProductDto(
     String id,
     String sku,
     String name,
-    BigDecimal price,
+    @Schema(type = "string", format = "decimal", example = "89.95")
+        @JsonSerialize(using = PlainBigDecimalSerializer.class)
+        BigDecimal price,
     Integer reorderPoint,
     boolean active,
     Instant createdAt,

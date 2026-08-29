@@ -71,7 +71,7 @@ class ProductControllerTest {
         .perform(get("/api/products/product-id"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.name").value("Keyboard"))
-        .andExpect(jsonPath("$.price").value(89.95));
+        .andExpect(jsonPath("$.price").value("89.95"));
   }
 
   @Test
