@@ -38,6 +38,9 @@ function AdminTab(props) {
             handleSearchOrder={props.handleSearchOrder}
             handleCancelOrder={props.handleCancelOrder}
             cancellingId={props.cancellingId}
+            processingId={props.processingId}
+            handlePayOrder={props.handlePayOrder}
+            handleShipOrder={props.handleShipOrder}
             isOrdersLoading={props.isOrdersLoading}
           />
         </Box>

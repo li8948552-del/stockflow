@@ -27,6 +27,8 @@ function OrderTable(props) {
           orders={props.orders}
           onCancel={props.onCancel}
           cancellingId={props.cancellingId}
+          processingId={props.processingId}
+          onPay={props.onPay}
         />
       </Stack>
     </Box>

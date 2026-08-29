@@ -19,6 +19,10 @@ public record OrderDto(
         @JsonSerialize(using = PlainBigDecimalSerializer.class)
         BigDecimal totalAmount,
     Instant expiresAt,
+    Instant paidAt,
+    Instant shippedAt,
+    Instant expiredAt,
+    String paymentReference,
     Instant createdAt,
     Instant updatedAt,
     Long version) {
@@ -64,6 +68,10 @@ public record OrderDto(
         order.getItems().stream().map(Item::from).toList(),
         order.getTotalAmount(),
         order.getExpiresAt(),
+        order.getPaidAt(),
+        order.getShippedAt(),
+        order.getExpiredAt(),
+        order.getPaymentReference(),
         order.getCreatedAt(),
         order.getUpdatedAt(),
         order.getVersion());

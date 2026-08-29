@@ -11,7 +11,7 @@ import {
   Text,
   Tooltip
 } from '@mantine/core'
-import { IconBan, IconEye } from '@tabler/icons-react'
+import { IconBan, IconCheck, IconEye, IconTruck } from '@tabler/icons-react'
 import { formatDateTime, formatMoney, sortOrderItems } from './OrderDisplay'
 
 const statusColors = {
@@ -22,15 +22,41 @@ const statusColors = {
   EXPIRED: 'orange'
 }
 
-function OrderList({ orders, showUsername = false, onCancel, cancellingId }) {
+function OrderList({
+  orders,
+  showUsername = false,
+  onCancel,
+  onPay,
+  onShip,
+  cancellingId,
+  processingId
+}) {
   const [detailOrder, setDetailOrder] = useState(null)
   const [confirmOrder, setConfirmOrder] = useState(null)
+  const [confirmPayment, setConfirmPayment] = useState(null)
+  const currentDetailOrder =
+    detailOrder && orders.find((order) => order.id === detailOrder.id)
+  const currentConfirmOrder =
+    confirmOrder && orders.find((order) => order.id === confirmOrder.id)
+  const currentConfirmPayment =
+    confirmPayment && orders.find((order) => order.id === confirmPayment.id)
 
   const confirmCancellation = async () => {
     if (!confirmOrder) return
     try {
       const updatedOrder = await onCancel(confirmOrder.id)
       setConfirmOrder(null)
+      if (detailOrder?.id === updatedOrder?.id) setDetailOrder(updatedOrder)
+    } catch {
+      // The page renders the sanitized API error and keeps confirmation open.
+    }
+  }
+
+  const confirmPaymentAction = async () => {
+    if (!confirmPayment) return
+    try {
+      const updatedOrder = await onPay(confirmPayment.id)
+      setConfirmPayment(null)
       if (detailOrder?.id === updatedOrder?.id) setDetailOrder(updatedOrder)
     } catch {
       // The page renders the sanitized API error and keeps confirmation open.
@@ -69,16 +95,49 @@ function OrderList({ orders, showUsername = false, onCancel, cancellingId }) {
             </ActionIcon>
           </Tooltip>
           {order.status === 'RESERVED' && (
-            <Tooltip label='Cancel reserved order'>
+            <>
+              {onPay &&
+                (!order.expiresAt ||
+                  Number.isNaN(new Date(order.expiresAt).getTime()) ||
+                  new Date(order.expiresAt).getTime() > Date.now()) && (
+                  <Tooltip label='Simulate payment confirmation'>
+                    <ActionIcon
+                      aria-label={`Simulate payment for order ${order.id}`}
+                      color='teal'
+                      variant='light'
+                      disabled={Boolean(processingId)}
+                      loading={processingId === order.id}
+                      onClick={() => setConfirmPayment(order)}
+                    >
+                      <IconCheck size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              <Tooltip label='Cancel reserved order'>
+                <ActionIcon
+                  aria-label={`Cancel order ${order.id}`}
+                  color='red'
+                  variant='light'
+                  disabled={Boolean(cancellingId) || Boolean(processingId)}
+                  loading={cancellingId === order.id}
+                  onClick={() => setConfirmOrder(order)}
+                >
+                  <IconBan size={16} />
+                </ActionIcon>
+              </Tooltip>
+            </>
+          )}
+          {order.status === 'PAID' && onShip && (
+            <Tooltip label='Ship order'>
               <ActionIcon
-                aria-label={`Cancel order ${order.id}`}
-                color='red'
+                aria-label={`Ship order ${order.id}`}
+                color='violet'
                 variant='light'
-                disabled={Boolean(cancellingId)}
-                loading={cancellingId === order.id}
-                onClick={() => setConfirmOrder(order)}
+                disabled={Boolean(processingId)}
+                loading={processingId === order.id}
+                onClick={() => onShip(order.id)}
               >
-                <IconBan size={16} />
+                <IconTruck size={16} />
               </ActionIcon>
             </Tooltip>
           )}
@@ -119,23 +178,40 @@ function OrderList({ orders, showUsername = false, onCancel, cancellingId }) {
       </Table.ScrollContainer>
 
       <Modal
-        opened={Boolean(detailOrder)}
+        opened={Boolean(currentDetailOrder)}
         onClose={() => setDetailOrder(null)}
         title='Order details'
         size='xl'
       >
-        {detailOrder && (
+        {currentDetailOrder && (
           <Stack>
             <Text>
-              <strong>Order ID:</strong> {detailOrder.id}
+              <strong>Order ID:</strong> {currentDetailOrder.id}
             </Text>
             <Text>
-              <strong>Warehouse:</strong> {detailOrder.warehouse.code} —{' '}
-              {detailOrder.warehouse.name}
+              <strong>Warehouse:</strong> {currentDetailOrder.warehouse.code} —{' '}
+              {currentDetailOrder.warehouse.name}
             </Text>
             <Text>
-              <strong>Status:</strong> {detailOrder.status}
+              <strong>Status:</strong> {currentDetailOrder.status}
             </Text>
+            <Text>
+              <strong>Paid:</strong> {formatDateTime(currentDetailOrder.paidAt)}
+            </Text>
+            <Text>
+              <strong>Shipped:</strong>{' '}
+              {formatDateTime(currentDetailOrder.shippedAt)}
+            </Text>
+            <Text>
+              <strong>Expired:</strong>{' '}
+              {formatDateTime(currentDetailOrder.expiredAt)}
+            </Text>
+            {currentDetailOrder.paymentReference && (
+              <Text>
+                <strong>Payment reference:</strong>{' '}
+                {currentDetailOrder.paymentReference}
+              </Text>
+            )}
             <ScrollArea>
               <Table withTableBorder>
                 <Table.Thead>
@@ -149,7 +225,7 @@ function OrderList({ orders, showUsername = false, onCancel, cancellingId }) {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {sortOrderItems(detailOrder.items).map((item) => (
+                  {sortOrderItems(currentDetailOrder.items).map((item) => (
                     <Table.Tr key={item.id}>
                       <Table.Td>{item.lineNumber}</Table.Td>
                       <Table.Td>{item.productSku}</Table.Td>
@@ -163,14 +239,39 @@ function OrderList({ orders, showUsername = false, onCancel, cancellingId }) {
               </Table>
             </ScrollArea>
             <Text fw={700}>
-              Total amount: {formatMoney(detailOrder.totalAmount)}
+              Total amount: {formatMoney(currentDetailOrder.totalAmount)}
             </Text>
           </Stack>
         )}
       </Modal>
 
       <Modal
-        opened={Boolean(confirmOrder)}
+        opened={Boolean(currentConfirmPayment?.status === 'RESERVED')}
+        onClose={() => !processingId && setConfirmPayment(null)}
+        title='Simulate payment confirmation?'
+      >
+        <Stack>
+          <Text>This demo action does not contact a payment provider.</Text>
+          <Group justify='flex-end'>
+            <Button
+              variant='default'
+              disabled={Boolean(processingId)}
+              onClick={() => setConfirmPayment(null)}
+            >
+              Keep reserved
+            </Button>
+            <Button
+              loading={processingId === currentConfirmPayment?.id}
+              onClick={confirmPaymentAction}
+            >
+              Confirm simulated payment
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={Boolean(currentConfirmOrder?.status === 'RESERVED')}
         onClose={() => !cancellingId && setConfirmOrder(null)}
         title='Cancel reserved order?'
       >
@@ -186,7 +287,7 @@ function OrderList({ orders, showUsername = false, onCancel, cancellingId }) {
             </Button>
             <Button
               color='red'
-              loading={cancellingId === confirmOrder?.id}
+              loading={cancellingId === currentConfirmOrder?.id}
               onClick={confirmCancellation}
             >
               Cancel order

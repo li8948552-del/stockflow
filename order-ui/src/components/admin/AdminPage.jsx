@@ -23,8 +23,10 @@ function AdminPage() {
   const [isUsersLoading, setIsUsersLoading] = useState(true)
   const [isOrdersLoading, setIsOrdersLoading] = useState(true)
   const [cancellingId, setCancellingId] = useState(null)
+  const [processingId, setProcessingId] = useState(null)
   const [message, setMessage] = useState(null)
   const orderRequest = useRef({ id: 0, controller: null })
+  const mounted = useRef(true)
 
   const loadOrders = async (params = {}) => {
     orderRequest.current.controller?.abort()
@@ -35,21 +37,26 @@ function AdminPage() {
     setMessage(null)
     try {
       const response = await orderApi.getOrders(user, params, controller.signal)
-      if (orderRequest.current.id === requestId) setOrders(response.data)
+      if (!mounted.current || orderRequest.current.id !== requestId)
+        return 'stale'
+      setOrders(response.data)
+      return 'success'
     } catch (error) {
-      if (
-        orderRequest.current.id === requestId &&
-        error.code !== 'ERR_CANCELED'
-      ) {
+      if (!mounted.current || orderRequest.current.id !== requestId)
+        return 'stale'
+      if (error.code === 'ERR_CANCELED') return 'cancelled'
+      {
         handleLogError(error)
-        setOrders([])
+        if (mounted.current) setOrders([])
         setMessage({
           color: 'red',
           text: getApiErrorMessage(error, 'Could not load orders.')
         })
+        return 'failed'
       }
     } finally {
-      if (orderRequest.current.id === requestId) setIsOrdersLoading(false)
+      if (mounted.current && orderRequest.current.id === requestId)
+        setIsOrdersLoading(false)
     }
   }
 
@@ -83,6 +90,7 @@ function AdminPage() {
       })
     return () => {
       active = false
+      mounted.current = false
       orderRequest.current.controller?.abort()
       orderRequest.current = {
         id: orderRequest.current.id + 1,
@@ -150,14 +158,89 @@ function AdminPage() {
       return response.data
     } catch (error) {
       handleLogError(error)
-      setMessage({
-        color: 'red',
-        text: getApiErrorMessage(error, 'Could not cancel the order.')
-      })
+      const conflictMessage = getApiErrorMessage(
+        error,
+        'Order status changed. Refresh and try again.'
+      )
+      if (error.response?.status === 409) {
+        await refreshAdminOrdersAfterConflict(conflictMessage)
+      } else setMessage({ color: 'red', text: conflictMessage })
       throw error
     } finally {
       setCancellingId(null)
     }
+  }
+
+  const handlePayOrder = async (orderId) => {
+    setProcessingId(orderId)
+    setMessage(null)
+    try {
+      const response = await orderApi.payOrder(user, orderId)
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === response.data.id ? response.data : order
+        )
+      )
+      setMessage({ color: 'green', text: 'Simulated payment confirmed.' })
+      return response.data
+    } catch (error) {
+      handleLogError(error)
+      const conflictMessage = getApiErrorMessage(
+        error,
+        'Order status changed. Refresh and try again.'
+      )
+      if (error.response?.status === 409) {
+        await refreshAdminOrdersAfterConflict(conflictMessage)
+      } else setMessage({ color: 'red', text: conflictMessage })
+      throw error
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const handleShipOrder = async (orderId) => {
+    setProcessingId(orderId)
+    setMessage(null)
+    try {
+      const response = await orderApi.shipOrder(user, orderId)
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === response.data.id ? response.data : order
+        )
+      )
+      setMessage({
+        color: 'green',
+        text: 'Order shipped and inventory deducted.'
+      })
+      return response.data
+    } catch (error) {
+      handleLogError(error)
+      const conflictMessage = getApiErrorMessage(
+        error,
+        'Order status changed. Refresh and try again.'
+      )
+      if (error.response?.status === 409) {
+        await refreshAdminOrdersAfterConflict(conflictMessage)
+      } else setMessage({ color: 'red', text: conflictMessage })
+      throw error
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const refreshAdminOrdersAfterConflict = async (conflictMessage) => {
+    const params = Object.fromEntries(
+      Object.entries(filters).filter(([, value]) => value)
+    )
+    const result = await loadOrders(params)
+    if (!mounted.current || result === 'stale' || result === 'cancelled') return
+    setMessage({
+      color: 'red',
+      text:
+        result === 'failed'
+          ? `${conflictMessage} Latest order refresh failed.`
+          : conflictMessage
+    })
   }
 
   if (!isAdmin) return <Navigate to='/' />
@@ -182,6 +265,9 @@ function AdminPage() {
           handleSearchOrder={handleSearchOrder}
           handleCancelOrder={handleCancelOrder}
           cancellingId={cancellingId}
+          processingId={processingId}
+          handlePayOrder={handlePayOrder}
+          handleShipOrder={handleShipOrder}
         />
       </Stack>
     </Container>

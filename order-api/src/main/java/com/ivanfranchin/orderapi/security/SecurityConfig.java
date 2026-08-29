@@ -36,6 +36,10 @@ public class SecurityConfig {
                 authorizeHttpRequests
                     .requestMatchers(HttpMethod.POST, "/api/orders")
                     .hasAnyAuthority(Role.ADMIN.name(), Role.USER.name())
+                    .requestMatchers(HttpMethod.POST, "/api/orders/*/pay")
+                    .hasAnyAuthority(Role.ADMIN.name(), Role.USER.name())
+                    .requestMatchers(HttpMethod.POST, "/api/orders/*/ship")
+                    .hasAuthority(Role.ADMIN.name())
                     .requestMatchers(HttpMethod.GET, "/api/users/me")
                     .hasAnyAuthority(Role.ADMIN.name(), Role.USER.name())
                     .requestMatchers(HttpMethod.POST, "/api/products", "/api/products/**")

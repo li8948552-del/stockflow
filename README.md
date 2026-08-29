@@ -11,7 +11,7 @@ Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-de
 ### Implemented now
 
 - Stateless JWT authentication, user registration, and role-based access control
-- Structured sales orders with server-assigned line numbers, inventory reservation, cancellation, and immutable movement audit records
+- Structured sales orders with server-assigned line numbers, price snapshots, reservation, cancellation, payment, shipment, expiration, and immutable movement audit records
 - Product master data with validated pricing, reorder points, activation status, and normalized unique SKUs
 - Supplier and Warehouse master data with normalized unique business codes
 - Transactional inventory management with immutable stock-movement audit records
@@ -25,7 +25,7 @@ Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-de
 
 ### Planned roadmap
 
-Payment and shipment transitions, automatic reservation expiration, dashboards, and the remaining master-data UI are under development or planned. BI, ETL, Power BI, AI-assisted replenishment, and frontend inventory pages are not implemented.
+The lifecycle workflows are implemented as simulated, development-safe operations. Product/Supplier/Warehouse management pages, BI, ETL, Power BI, AI-assisted replenishment, and frontend inventory pages are not implemented.
 
 ## Engineering highlights
 
@@ -42,11 +42,12 @@ Payment and shipment transitions, automatic reservation expiration, dashboards, 
 - Transactionally atomic Inventory updates and append-only `InventoryMovement` audit records
 - `@Version` optimistic locking for inventory updates and a fixed Warehouse → Product `PESSIMISTIC_WRITE` lock order for receipts
 - Structured order forms support warehouse/product selection, multiple items, available-quantity hints, exact estimated totals, order detail views, cancellation, and ADMIN filtering across all orders
+- The React UI lets USERs simulate payment or cancel their own `RESERVED` orders; ADMINs can operate on any order, including shipping `PAID` orders. Lifecycle statuses and timestamps are shown, conflict responses refresh server state, and no real payment form is provided.
 - OrderItem `lineNumber` preserves request/display order while inventory locks remain sorted by stable product identifiers
 - Deterministic Java 25 Mockito execution through an explicitly resolved, portable Maven Surefire Java agent
-- 248 backend tests and 85 frontend tests (14 files) verified with 0 failures
+- 280 backend tests and 90 frontend tests (14 files) verified with 0 failures
 
-The Order module is now a structured sales-order foundation. It captures warehouse fulfilment, line items, price snapshots, reservations, and cancellation; payment, shipment, and expiration business workflows remain future work.
+The Order module now implements the core lifecycle: RESERVED → PAID, PAID → SHIPPED, RESERVED → CANCELLED, and RESERVED → EXPIRED. Payment is a simulated confirmation only; no payment gateway or real funds are involved.
 
 ## Architecture
 
@@ -102,9 +103,13 @@ flowchart LR
 - Inventory quantities remain nonnegative, and `reserved` cannot exceed `onHand`.
 - Inventory uses `@Version` optimistic locking. Receipts use a fixed Warehouse → Product `PESSIMISTIC_WRITE` row-lock order to prevent concurrent first-receipt races and deadlocks.
 - Every inventory change and its `InventoryMovement` are written in one transaction, so both commit or both roll back.
+- Movement types are `INITIAL_STOCK`, `RECEIPT`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, `RESERVATION`, `RELEASE`, and `SHIPMENT`.
 - Sales-order creation increases `reserved` without changing `onHand`; cancellation releases `reserved` without changing `onHand` and records `RESERVATION` / `RELEASE` movements.
-- Orders use `BigDecimal` calculations, Product price snapshots, and exact decimal-string JSON amounts. Their model includes `RESERVED`, `PAID`, `SHIPPED`, `CANCELLED`, and `EXPIRED`; only create → `RESERVED`, `RESERVED` → `CANCELLED`, and idempotent repeated cancellation are currently implemented.
-- Order writes use User → Warehouse → Product → Inventory locking; receipts use Warehouse → Product → Inventory; cancellation uses Order → Warehouse → Product → Inventory.
+- Orders use `BigDecimal` calculations, Product price snapshots, and exact decimal-string JSON amounts. Their model includes `RESERVED`, `PAID`, `SHIPPED`, `CANCELLED`, and `EXPIRED`; repeated payment, shipment, cancellation, and expiration processing are idempotent where applicable.
+- Payment uses `POST /api/orders/{id}/pay` as simulated payment confirmation. The server generates a stable `paymentReference`; clients never submit card, amount, or payment data.
+- Shipment uses `POST /api/orders/{id}/ship` for `ADMIN` users. It changes `PAID` → `SHIPPED`, decreases `onHand` and `reserved`, and records a `SHIPMENT` movement.
+- Scheduled expiration batches due `RESERVED` orders and processes each through an independent `REQUIRES_NEW` transaction, releasing `reserved` while leaving `onHand` unchanged and recording `RELEASE`. An Order row lock makes multi-instance processing idempotent. Configuration includes `app.order-expiration.enabled`, `interval-ms`, and `batch-size`.
+- Order writes use User → Warehouse → Product → Inventory locking; receipts use Warehouse → Product → Inventory; cancellation, shipment, and expiration use Order → Warehouse → Product → Inventory.
 
 ## API overview
 
@@ -124,6 +129,8 @@ All secured endpoints expect `Authorization: Bearer <token>`. Interactive OpenAP
 | `GET` | `/api/orders/{id}` | Authenticated, ownership-aware | Get one structured order |
 | `POST` | `/api/orders` | Authenticated | Create an order and reserve inventory |
 | `POST` | `/api/orders/{id}/cancel` | Owner or `ADMIN` | Cancel a `RESERVED` order and release reservations (idempotent) |
+| `POST` | `/api/orders/{id}/pay` | Owner or `ADMIN` | Simulated payment confirmation (`RESERVED` → `PAID`) |
+| `POST` | `/api/orders/{id}/ship` | `ADMIN` | Ship a paid order and deduct on-hand/reserved inventory (`PAID` → `SHIPPED`) |
 | `GET` | `/api/products` | Authenticated | List products |
 | `GET` | `/api/products/{id}` | Authenticated | Get a product |
 | `POST` | `/api/products` | `ADMIN` | Create a product |
@@ -248,7 +255,7 @@ Run backend commands from `order-api`:
 ./mvnw clean test
 ```
 
-The current backend suite contains **248 tests** and the frontend suite contains **85 tests across 14 files**, all passing.
+The current backend suite contains **280 tests** and the frontend suite contains **90 tests across 14 files**, all passing. Concurrency/configuration coverage includes `OrderConcurrencyTest` (10), `OrderExpirationSchedulerTest` (5), and `OrderExpirationConfigurationTest` (2).
 
 Build the frontend from `order-ui`:
 
@@ -269,16 +276,19 @@ npm run build
 - [x] Inventory and `InventoryMovement`
 - [x] Stock receipt, adjustment, and audit history
 - [x] Optimistic locking and concurrency-safe initial stock creation
+- [x] Structured sales orders and stock reservation
+- [x] Payment, shipment, and automatic reservation expiration lifecycle
 
 ### Planned
 
-- [x] Structured sales orders and stock reservation
-- [ ] Payment and shipment transitions
-- [ ] Automatic reservation expiration
-- [ ] Dashboard and remaining master-data UI
-- [ ] Dimensional warehouse/ETL and Power BI
+- [ ] Flyway database migrations
+- [ ] PostgreSQL Testcontainers
+- [ ] GitHub Actions CI
+- [ ] Product/Supplier/Warehouse/Inventory management UI
+- [ ] Dashboard
+- [ ] Docker deployment
+- [ ] Data warehouse and Power BI
 - [ ] AI replenishment assistant
-- [ ] Deployment and demo
 
 ## Project evolution and attribution
 

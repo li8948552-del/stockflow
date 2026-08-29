@@ -11,6 +11,9 @@ function OrderTable({
   setFilters,
   handleSearchOrder,
   handleCancelOrder,
+  handlePayOrder,
+  handleShipOrder,
+  processingId,
   cancellingId,
   isOrdersLoading
 }) {
@@ -71,6 +74,9 @@ function OrderTable({
         showUsername
         onCancel={handleCancelOrder}
         cancellingId={cancellingId}
+        processingId={processingId}
+        onPay={handlePayOrder}
+        onShip={handleShipOrder}
       />
     </Stack>
   )

@@ -63,6 +63,53 @@ describe('OrderList', () => {
     expect(onCancel).toHaveBeenCalledWith('order-12345678')
   })
 
+  it('confirms simulated payment and uses the handler once', async () => {
+    const onPay = vi.fn().mockResolvedValue({ ...order(), status: 'PAID' })
+    render(
+      <OrderList
+        orders={[{ ...order(), expiresAt: '2099-01-01T00:30:00Z' }]}
+        onCancel={vi.fn()}
+        onPay={onPay}
+      />
+    )
+    await userEvent.click(screen.getByLabelText(/simulate payment/i))
+    expect(
+      screen.getByText(/does not contact a payment provider/i)
+    ).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: /confirm simulated payment/i })
+    )
+    expect(onPay).toHaveBeenCalledTimes(1)
+    expect(onPay).toHaveBeenCalledWith('order-12345678')
+  })
+
+  it('shows shipment only for PAID orders and never for USER-style handlers', () => {
+    const { rerender } = render(
+      <OrderList orders={[order('PAID')]} onCancel={vi.fn()} onShip={vi.fn()} />
+    )
+    expect(screen.getByLabelText(/ship order/i)).toBeInTheDocument()
+    rerender(
+      <OrderList
+        orders={[order('SHIPPED')]}
+        onCancel={vi.fn()}
+        onShip={vi.fn()}
+      />
+    )
+    expect(screen.queryByLabelText(/ship order/i)).not.toBeInTheDocument()
+  })
+
+  it('renders null lifecycle timestamps safely', async () => {
+    const value = {
+      ...order('PAID'),
+      paidAt: null,
+      shippedAt: null,
+      expiredAt: null
+    }
+    render(<OrderList orders={[value]} onCancel={vi.fn()} onShip={vi.fn()} />)
+    await userEvent.click(screen.getByLabelText(/view order/i))
+    expect(screen.queryByText(/invalid date/i)).not.toBeInTheDocument()
+  })
+
   it.each(['CANCELLED', 'PAID', 'SHIPPED', 'EXPIRED'])(
     'does not offer cancellation for %s',
     (status) => {
@@ -95,5 +142,26 @@ describe('OrderList', () => {
     render(<OrderList orders={[value]} onCancel={vi.fn()} />)
     expect(screen.getByText('99999999999999999.99')).toBeInTheDocument()
     expect(screen.queryByText('$99999999999999999.99')).not.toBeInTheDocument()
+  })
+
+  it('updates an open details modal when the server order changes', async () => {
+    const initial = order('PAID')
+    const { rerender } = render(
+      <OrderList orders={[initial]} onCancel={vi.fn()} onShip={vi.fn()} />
+    )
+    await userEvent.click(screen.getByLabelText(/view order/i))
+    expect(screen.getAllByText('PAID').length).toBeGreaterThan(0)
+
+    rerender(
+      <OrderList
+        orders={[
+          { ...initial, status: 'SHIPPED', shippedAt: '2026-01-01T01:00:00Z' }
+        ]}
+        onCancel={vi.fn()}
+        onShip={vi.fn()}
+      />
+    )
+    expect(screen.getAllByText('SHIPPED').length).toBeGreaterThan(0)
+    expect(screen.queryByLabelText(/ship order/i)).not.toBeInTheDocument()
   })
 })

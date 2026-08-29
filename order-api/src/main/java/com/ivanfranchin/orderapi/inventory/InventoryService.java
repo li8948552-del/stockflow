@@ -273,6 +273,17 @@ public class InventoryService {
   @Transactional(propagation = Propagation.MANDATORY)
   public void releaseForOrder(
       String warehouseId, Map<String, Long> quantities, String orderId, String createdBy) {
+    releaseForOrder(warehouseId, quantities, orderId, createdBy, "Sales order cancellation");
+  }
+
+  /** Joins the caller's transaction and releases reservations with an explicit audit reason. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void releaseForOrder(
+      String warehouseId,
+      Map<String, Long> quantities,
+      String orderId,
+      String createdBy,
+      String reason) {
     validateCreatedBy(createdBy);
     getWarehouseForUpdate(warehouseId);
     List<String> productIds = quantities.keySet().stream().sorted().toList();
@@ -300,7 +311,47 @@ public class InventoryService {
           before,
           after,
           orderId,
-          "Sales order cancellation",
+          reason,
+          createdBy);
+    }
+  }
+
+  /** Ships a paid order while preserving Warehouse, Product, Inventory lock order. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void shipForOrder(
+      String warehouseId, Map<String, Long> quantities, String orderId, String createdBy) {
+    validateCreatedBy(createdBy);
+    getWarehouseForUpdate(warehouseId);
+    List<String> productIds = quantities.keySet().stream().sorted().toList();
+    for (String productId : productIds) getProductForUpdate(productId);
+    List<Inventory> inventories = new ArrayList<>();
+    for (String productId : productIds) {
+      inventories.add(getInventoryForUpdate(productId, warehouseId));
+    }
+    for (Inventory inventory : inventories) {
+      long quantity = quantities.get(inventory.getProduct().getId());
+      long onHandBefore = inventory.getOnHand();
+      long reservedBefore = inventory.getReserved();
+      if (quantity <= 0 || quantity > onHandBefore || quantity > reservedBefore) {
+        throw new InsufficientInventoryException(
+            "Insufficient reserved or on-hand inventory for shipment");
+      }
+      long onHandAfter = subtractExact(onHandBefore, quantity);
+      long reservedAfter = subtractExact(reservedBefore, quantity);
+      inventory.setOnHand(onHandAfter);
+      inventory.setReserved(reservedAfter);
+      Inventory saved = saveInventory(inventory);
+      saveMovement(
+          saved,
+          InventoryMovementType.SHIPMENT,
+          Math.negateExact(quantity),
+          Math.negateExact(quantity),
+          onHandBefore,
+          onHandAfter,
+          reservedBefore,
+          reservedAfter,
+          orderId,
+          "Sales order shipment",
           createdBy);
     }
   }
@@ -322,6 +373,14 @@ public class InventoryService {
   private long addExact(long current, long delta) {
     try {
       return Math.addExact(current, delta);
+    } catch (ArithmeticException exception) {
+      throw new InvalidInventoryQuantityException("Inventory quantity exceeds the supported range");
+    }
+  }
+
+  private long subtractExact(long current, long delta) {
+    try {
+      return Math.subtractExact(current, delta);
     } catch (ArithmeticException exception) {
       throw new InvalidInventoryQuantityException("Inventory quantity exceeds the supported range");
     }
