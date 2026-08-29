@@ -47,7 +47,10 @@ public class InventoryMovement {
   private InventoryMovementType type;
 
   @Column(nullable = false)
-  private long quantityDelta;
+  private long onHandDelta;
+
+  @Column(nullable = false)
+  private long reservedDelta;
 
   @Column(nullable = false)
   private long onHandBefore;
@@ -78,7 +81,8 @@ public class InventoryMovement {
   static InventoryMovement create(
       Inventory inventory,
       InventoryMovementType type,
-      long quantityDelta,
+      long onHandDelta,
+      long reservedDelta,
       long onHandBefore,
       long onHandAfter,
       long reservedBefore,
@@ -91,7 +95,8 @@ public class InventoryMovement {
     movement.product = inventory.getProduct();
     movement.warehouse = inventory.getWarehouse();
     movement.type = type;
-    movement.quantityDelta = quantityDelta;
+    movement.onHandDelta = onHandDelta;
+    movement.reservedDelta = reservedDelta;
     movement.onHandBefore = onHandBefore;
     movement.onHandAfter = onHandAfter;
     movement.reservedBefore = reservedBefore;

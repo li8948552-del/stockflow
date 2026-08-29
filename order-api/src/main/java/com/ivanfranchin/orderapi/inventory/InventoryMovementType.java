@@ -4,5 +4,7 @@ public enum InventoryMovementType {
   INITIAL_STOCK,
   RECEIPT,
   ADJUSTMENT_IN,
-  ADJUSTMENT_OUT
+  ADJUSTMENT_OUT,
+  RESERVATION,
+  RELEASE
 }

@@ -80,7 +80,8 @@ class InventoryServiceTest {
             org.mockito.ArgumentMatchers.argThat(
                 movement ->
                     movement.getType() == InventoryMovementType.INITIAL_STOCK
-                        && movement.getQuantityDelta() == 100
+                        && movement.getOnHandDelta() == 100
+                        && movement.getReservedDelta() == 0
                         && movement.getOnHandBefore() == 0
                         && movement.getOnHandAfter() == 100));
   }

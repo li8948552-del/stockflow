@@ -1,13 +1,11 @@
 package com.ivanfranchin.orderapi.rest.dto;
 
-import com.ivanfranchin.orderapi.order.Order;
-import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import java.util.List;
 
 public record CreateOrderRequest(
-    @Schema(example = "Buy two iPhones") @NotBlank String description) {
-
-  public Order toDomain() {
-    return new Order(description);
-  }
-}
+    @NotBlank String warehouseId,
+    @NotNull @NotEmpty List<@NotNull @Valid CreateOrderItemRequest> items) {}

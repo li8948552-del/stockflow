@@ -112,10 +112,20 @@ class InventoryPersistenceTest {
             new Inventory(references.product(), references.warehouse(), 10));
     InventoryMovement older =
         InventoryMovement.create(
-            inventory, InventoryMovementType.INITIAL_STOCK, 10, 0, 10, 0, 0, null, null, "admin");
+            inventory,
+            InventoryMovementType.INITIAL_STOCK,
+            10,
+            0,
+            0,
+            10,
+            0,
+            0,
+            null,
+            null,
+            "admin");
     InventoryMovement newer =
         InventoryMovement.create(
-            inventory, InventoryMovementType.RECEIPT, 5, 10, 15, 0, 0, null, null, "admin");
+            inventory, InventoryMovementType.RECEIPT, 5, 0, 10, 15, 0, 0, null, null, "admin");
     Instant sameCreatedAt = Instant.parse("2026-01-01T00:00:00Z");
     ReflectionTestUtils.setField(older, "id", "movement-a");
     ReflectionTestUtils.setField(newer, "id", "movement-b");
@@ -161,6 +171,7 @@ class InventoryPersistenceTest {
             inventory,
             InventoryMovementType.ADJUSTMENT_IN,
             1,
+            0,
             10,
             11,
             0,
@@ -189,6 +200,7 @@ class InventoryPersistenceTest {
             inventory,
             InventoryMovementType.ADJUSTMENT_OUT,
             -1,
+            0,
             10,
             9,
             0,
@@ -214,6 +226,7 @@ class InventoryPersistenceTest {
             inventory,
             InventoryMovementType.ADJUSTMENT_IN,
             1,
+            0,
             10,
             11,
             0,
