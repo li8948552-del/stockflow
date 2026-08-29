@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.order;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.inventory.InventoryService;
 import com.ivanfranchin.orderapi.rest.dto.CreateOrderItemRequest;
 import com.ivanfranchin.orderapi.rest.dto.CreateOrderRequest;
@@ -62,8 +63,7 @@ public class OrderService {
     InventoryService.ReservationBatch reservation =
         inventoryService.reserveForOrder(request.warehouseId(), quantities, orderId, username);
     Order order =
-        new Order(
-            orderId, user, reservation.warehouse(), Instant.now(clock).plus(RESERVATION_DURATION));
+        new Order(orderId, user, reservation.warehouse(), databaseNow().plus(RESERVATION_DURATION));
     Map<String, InventoryService.ReservedProduct> reservedByProduct =
         reservation.products().stream()
             .collect(Collectors.toMap(item -> item.product().getId(), item -> item));
@@ -108,10 +108,11 @@ public class OrderService {
       throw new OrderPaymentConflictException(
           "Order in status %s cannot be paid".formatted(order.getStatus()));
     }
-    if (!Instant.now(clock).isBefore(order.getExpiresAt())) {
+    Instant now = databaseNow();
+    if (!now.isBefore(order.getExpiresAt())) {
       throw new OrderExpiredException("Order reservation has expired");
     }
-    order.markPaid(Instant.now(clock), "PAY-" + UUID.randomUUID());
+    order.markPaid(now, "PAY-" + UUID.randomUUID());
     return orderRepository.saveAndFlush(order);
   }
 
@@ -134,15 +135,15 @@ public class OrderService {
                     LinkedHashMap::new));
     inventoryService.shipForOrder(
         order.getWarehouse().getId(), quantities, order.getId(), username);
-    order.markShipped(Instant.now(clock));
+    order.markShipped(databaseNow());
     return orderRepository.saveAndFlush(order);
   }
 
   @Transactional
   public Order expireOrder(String id) {
     Order order = lockDetailed(id);
-    if (order.getStatus() != OrderStatus.RESERVED
-        || Instant.now(clock).isBefore(order.getExpiresAt())) {
+    Instant now = databaseNow();
+    if (order.getStatus() != OrderStatus.RESERVED || now.isBefore(order.getExpiresAt())) {
       return order;
     }
     Map<String, Long> quantities =
@@ -159,7 +160,7 @@ public class OrderService {
         order.getId(),
         "system",
         "Sales order reservation expired");
-    order.markExpired(Instant.now(clock));
+    order.markExpired(now);
     return orderRepository.saveAndFlush(order);
   }
 
@@ -170,6 +171,10 @@ public class OrderService {
 
   public long countOrders() {
     return orderRepository.count();
+  }
+
+  private Instant databaseNow() {
+    return TimePrecision.databasePrecision(Instant.now(clock));
   }
 
   private Map<String, Long> validateAndIndex(List<CreateOrderItemRequest> items) {

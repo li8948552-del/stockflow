@@ -201,6 +201,9 @@ class OrderPersistenceTest {
 
   @Test
   void repeatedPaymentKeepsSameTimestampAndReferenceWithoutInventoryChanges() {
+    orderService.setClock(
+        java.time.Clock.fixed(
+            Instant.parse("2026-02-01T00:00:00.123456789Z"), java.time.ZoneOffset.UTC));
     Fixture fixture = fixture(10, 10);
     Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
     Order first = orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);
@@ -256,6 +259,9 @@ class OrderPersistenceTest {
 
   @Test
   void repeatedShipmentIsIdempotentAfterReload() {
+    orderService.setClock(
+        java.time.Clock.fixed(
+            Instant.parse("2026-02-01T00:00:00.123456789Z"), java.time.ZoneOffset.UTC));
     Fixture fixture = fixture(10, 10);
     Order order = orderService.createOrder(request(fixture, 2, 0), fixture.user().getUsername());
     orderService.payOrder(order.getId(), fixture.user().getUsername(), Role.USER);

@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.order;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.product.Product;
 import com.ivanfranchin.orderapi.user.User;
 import com.ivanfranchin.orderapi.warehouse.Warehouse;
@@ -140,7 +141,7 @@ public class Order {
   void onPrePersist() {
     validateState();
     if (id == null) id = UUID.randomUUID().toString();
-    Instant now = Instant.now();
+    Instant now = TimePrecision.databasePrecision(Instant.now());
     if (createdAt == null) createdAt = now;
     updatedAt = now;
   }
@@ -148,7 +149,7 @@ public class Order {
   @PreUpdate
   void onPreUpdate() {
     validateState();
-    updatedAt = Instant.now();
+    updatedAt = TimePrecision.databasePrecision(Instant.now());
   }
 
   private void validateState() {

@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.product;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.product.validation.ValidProductSku;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -65,7 +66,7 @@ public class Product {
       id = UUID.randomUUID().toString();
     }
     normalizeSku();
-    Instant now = Instant.now();
+    Instant now = TimePrecision.databasePrecision(Instant.now());
     if (createdAt == null) {
       createdAt = now;
     }
@@ -75,7 +76,7 @@ public class Product {
   @PreUpdate
   public void onPreUpdate() {
     normalizeSku();
-    updatedAt = Instant.now();
+    updatedAt = TimePrecision.databasePrecision(Instant.now());
   }
 
   private void normalizeSku() {
