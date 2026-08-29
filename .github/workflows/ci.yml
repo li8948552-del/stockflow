@@ -1,0 +1,194 @@
+name: StockFlow CI
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+  pull_request:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: stockflow-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Spotless and tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: order-api
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: order-api/pom.xml
+      - name: Check formatting
+        run: ./mvnw spotless:check
+      - name: Run backend tests
+        id: backend-tests
+        run: ./mvnw clean test
+      - name: Upload Surefire reports on failure
+        if: steps.backend-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: order-api/target/surefire-reports/
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend (format, lint, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: order-ui
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: order-ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Check formatting
+        run: npm run format:check
+      - name: Run ESLint
+        run: npm run lint
+      - name: Run Vitest
+        run: npm test -- --run
+      - name: Build production bundle
+        run: npm run build
+
+  postgres-migration:
+    name: PostgreSQL 18 Flyway migration smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: stockflow_ci
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ci_user -d stockflow_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: order-api/pom.xml
+      - name: Verify PostgreSQL readiness
+        env:
+          PGPASSWORD: ci_password
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            pg_isready -h 127.0.0.1 -p 5432 -U ci_user -d stockflow_ci && exit 0
+            sleep 2
+          done
+          echo "PostgreSQL did not become ready" >&2
+          exit 1
+      - name: Apply V1 and validate with the application
+        working-directory: order-api
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/stockflow_ci
+          SPRING_DATASOURCE_USERNAME: ci_user
+          SPRING_DATASOURCE_PASSWORD: ci_password
+          SPRING_FLYWAY_ENABLED: 'true'
+          SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'false'
+          SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+          APP_ORDER_EXPIRATION_ENABLED: 'false'
+          SERVER_PORT: '18080'
+          PGPASSWORD: ci_password
+        run: |
+          set -euo pipefail
+          app_pid=''
+          cleanup() {
+            if [[ -n "${app_pid}" ]]; then
+              kill "${app_pid}" 2>/dev/null || true
+              wait "${app_pid}" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          ./mvnw spring-boot:run > /tmp/stockflow-ci-app.log 2>&1 &
+          app_pid=$!
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null; then
+              break
+            fi
+            if ! kill -0 "${app_pid}" 2>/dev/null; then
+              cat /tmp/stockflow-ci-app.log
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null
+          psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" \
+            -v ON_ERROR_STOP=1 \
+            -c "select version, success from flyway_schema_history where version = '1' and success = true;" \
+            -c "select count(*) from information_schema.tables where table_schema = 'public' and table_name in ('users','products','suppliers','warehouses','orders','order_items','inventories','inventory_movements');" \
+            | tee /tmp/stockflow-ci-schema.log
+          grep -q '1 row' /tmp/stockflow-ci-schema.log
+          grep -q '^\s*8\s*$' /tmp/stockflow-ci-schema.log
+      - name: Verify restart is idempotent
+        working-directory: order-api
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/stockflow_ci
+          SPRING_DATASOURCE_USERNAME: ci_user
+          SPRING_DATASOURCE_PASSWORD: ci_password
+          SPRING_FLYWAY_ENABLED: 'true'
+          SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'false'
+          SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+          APP_ORDER_EXPIRATION_ENABLED: 'false'
+          SERVER_PORT: '18080'
+          PGPASSWORD: ci_password
+        run: |
+          set -euo pipefail
+          app_pid=''
+          cleanup() {
+            if [[ -n "${app_pid}" ]]; then
+              kill "${app_pid}" 2>/dev/null || true
+              wait "${app_pid}" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          ./mvnw spring-boot:run > /tmp/stockflow-ci-restart.log 2>&1 &
+          app_pid=$!
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null; then
+              break
+            fi
+            if ! kill -0 "${app_pid}" 2>/dev/null; then
+              cat /tmp/stockflow-ci-restart.log
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null
+          history_rows=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 -c "select count(*) from flyway_schema_history where version = '1' and success = true;")
+          [[ "${history_rows}" == "1" ]]
