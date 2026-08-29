@@ -11,10 +11,13 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
+import tools.jackson.databind.annotation.JsonSerialize;
 
 public record UpdateProductRequest(
     @Schema(example = "SKU-001") @ValidProductSku String sku,
     @Schema(example = "Wireless Keyboard") @NotBlank @Size(max = NAME_MAX_LENGTH) String name,
-    @Schema(example = "89.95") @NotNull @DecimalMin("0.00") @Digits(integer = 17, fraction = 2) BigDecimal price,
+    @Schema(type = "string", format = "decimal", example = "89.95")
+        @JsonSerialize(using = PlainBigDecimalSerializer.class)
+        @NotNull @DecimalMin("0.00") @Digits(integer = 17, fraction = 2) BigDecimal price,
     @Schema(example = "10") @NotNull @PositiveOrZero Integer reorderPoint,
     @Schema(example = "true") @NotNull Boolean active) {}

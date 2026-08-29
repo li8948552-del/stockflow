@@ -35,3 +35,11 @@ const localStorageMock = (() => {
   }
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
+
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+Element.prototype.scrollIntoView = vi.fn()

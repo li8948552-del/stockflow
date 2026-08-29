@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ivanfranchin.orderapi.order.OrderRepository;
 import com.ivanfranchin.orderapi.security.Role;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +22,7 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 class UserServiceTest {
 
   @MockitoBean private UserRepository userRepository;
+  @MockitoBean private OrderRepository orderRepository;
 
   @Autowired private UserService userService;
 
@@ -179,12 +181,27 @@ class UserServiceTest {
   // -- deleteUser --
 
   @Test
-  void deleteUser_delegatesToRepository() {
+  void deleteUser_delegatesToRepositoryWhenNoOrdersExist() {
     User user = new User("alice", "pass", "Alice", "alice@example.com", Role.USER);
+    user.setId(1L);
+    when(userRepository.findByUsernameForUpdate("alice")).thenReturn(Optional.of(user));
+    when(orderRepository.existsByUserId(1L)).thenReturn(false);
 
-    userService.deleteUser(user);
+    userService.deleteUser("alice", "admin");
 
     verify(userRepository).delete(user);
-    verifyNoMoreInteractions(userRepository);
+    verify(userRepository).flush();
+  }
+
+  @Test
+  void deleteUser_rejectsAnyHistoricalOrder() {
+    User user = new User("alice", "pass", "Alice", "alice@example.com", Role.USER);
+    user.setId(1L);
+    when(userRepository.findByUsernameForUpdate("alice")).thenReturn(Optional.of(user));
+    when(orderRepository.existsByUserId(1L)).thenReturn(true);
+
+    assertThatThrownBy(() -> userService.deleteUser("alice", "admin"))
+        .isInstanceOf(UserHasOrdersException.class);
+    verify(userRepository, org.mockito.Mockito.never()).delete(user);
   }
 }

@@ -10,8 +10,12 @@ export const orderApi = {
   getUsers,
   deleteUser,
   getOrders,
-  deleteOrder,
+  getOrder,
   createOrder,
+  cancelOrder,
+  getProducts,
+  getWarehouses,
+  getInventory,
   getUserMe
 }
 
@@ -52,15 +56,16 @@ function deleteUser(user, username) {
   })
 }
 
-function getOrders(user, text) {
-  const url = text ? `/api/orders?text=${text}` : '/api/orders'
-  return instance.get(url, {
+function getOrders(user, params = {}, signal) {
+  return instance.get('/api/orders', {
+    params,
+    signal,
     headers: { Authorization: bearerAuth(user) }
   })
 }
 
-function deleteOrder(user, orderId) {
-  return instance.delete(`/api/orders/${orderId}`, {
+function getOrder(user, orderId) {
+  return instance.get(`/api/orders/${orderId}`, {
     headers: { Authorization: bearerAuth(user) }
   })
 }
@@ -71,6 +76,32 @@ function createOrder(user, order) {
       'Content-type': 'application/json',
       Authorization: bearerAuth(user)
     }
+  })
+}
+
+function cancelOrder(user, orderId) {
+  return instance.post(`/api/orders/${orderId}/cancel`, null, {
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function getProducts(user) {
+  return instance.get('/api/products', {
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function getWarehouses(user) {
+  return instance.get('/api/warehouses', {
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function getInventory(user, params = {}, signal) {
+  return instance.get('/api/inventory', {
+    params,
+    signal,
+    headers: { Authorization: bearerAuth(user) }
   })
 }
 

@@ -11,28 +11,27 @@ Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-de
 ### Implemented now
 
 - Stateless JWT authentication, user registration, and role-based access control
-- A foundational order module for creating, listing, searching, and deleting simple user-owned order records
+- Structured sales orders with server-assigned line numbers, inventory reservation, cancellation, and immutable movement audit records
 - Product master data with validated pricing, reorder points, activation status, and normalized unique SKUs
 - Supplier and Warehouse master data with normalized unique business codes
+- Transactional inventory management with immutable stock-movement audit records
 - Authenticated master-data reads and `ADMIN`-only create, update, and deactivate operations
-- React authentication and foundational order/user workflows
+- React authentication and structured order workflows for users and administrators
 - PostgreSQL persistence, OpenAPI documentation, and automated unit, controller, security, and JPA tests
 
 ### Currently under development
 
-- Inventory domain modeling and the relationships between products, suppliers, and warehouses
 - Frontend management experiences for Product, Supplier, and Warehouse data
-- Evolution of the original order foundation into a structured sales-order workflow
 
 ### Planned roadmap
 
-Inventory reservation, inventory movements, a sales-order state machine, analytics/ETL, Power BI, and AI-assisted replenishment are planned capabilities. They are not implemented in the current codebase.
+Payment and shipment transitions, automatic reservation expiration, dashboards, and the remaining master-data UI are under development or planned. BI, ETL, Power BI, AI-assisted replenishment, and frontend inventory pages are not implemented.
 
 ## Engineering highlights
 
 - Spring Boot layered architecture with REST controllers, DTOs, transactional services, JPA repositories, and domain entities
 - Stateless JWT authentication and Spring Security role-based authorization
-- Product, Supplier, and Warehouse master-data management
+- Product, Supplier, Warehouse, and Inventory management
 - Authenticated reads with `ADMIN`-only write operations
 - Soft deletion for Product, Supplier, and Warehouse records by setting `active` to `false`
 - Transactional service operations and database-level named unique constraints
@@ -40,10 +39,14 @@ Inventory reservation, inventory movements, a sales-order state machine, analyti
 - Validation against normalized Unicode code-point limits rather than UTF-16 code units
 - DTO/entity separation so JPA entities are not exposed directly by master-data APIs
 - Constraint-specific duplicate handling that does not misclassify unrelated persistence failures
+- Transactionally atomic Inventory updates and append-only `InventoryMovement` audit records
+- `@Version` optimistic locking for inventory updates and a fixed Warehouse → Product `PESSIMISTIC_WRITE` lock order for receipts
+- Structured order forms support warehouse/product selection, multiple items, available-quantity hints, exact estimated totals, order detail views, cancellation, and ADMIN filtering across all orders
+- OrderItem `lineNumber` preserves request/display order while inventory locks remain sorted by stable product identifiers
 - Deterministic Java 25 Mockito execution through an explicitly resolved, portable Maven Surefire Java agent
-- 186 backend tests verified with 0 failures, 0 errors, and 0 skipped
+- 248 backend tests and 85 frontend tests (14 files) verified with 0 failures
 
-The current Order module is an intentionally simple foundation: it stores a description, owner, and creation time and supports basic create/query/delete behavior. Inventory-aware line items, reservations, fulfillment state, cancellation, and expiration remain roadmap work.
+The Order module is now a structured sales-order foundation. It captures warehouse fulfilment, line items, price snapshots, reservations, and cancellation; payment, shipment, and expiration business workflows remain future work.
 
 ## Architecture
 
@@ -77,10 +80,12 @@ flowchart LR
 | Module | Status | Purpose |
 | --- | --- | --- |
 | Authentication/User | Implemented | Signup, login, JWT issuance, current-user access, and administrative user management |
-| Order foundation | Implemented foundation | Simple user-owned order records with description-based search; not yet inventory-aware |
+| Structured Sales Orders / Stock Reservation | Implemented | Order and OrderItem aggregates, server-assigned line numbers, price snapshots, reservation and cancellation workflow |
 | Product | Implemented | Product identity, normalized SKU, price, reorder point, active status, and timestamps |
 | Supplier | Implemented | Supplier identity, normalized code, contact details, lead time, active status, and timestamps |
 | Warehouse | Implemented | Warehouse identity, normalized code, location, active status, and timestamps |
+| Inventory | Implemented | Per-product, per-warehouse on-hand and reserved quantities with calculated availability and optimistic locking |
+| InventoryMovement | Implemented | Immutable audit history for stock changes, reservations, releases, and adjustments |
 
 ## Business rules
 
@@ -93,6 +98,13 @@ flowchart LR
 - Master-data reads require authentication; create, update, and deactivate operations require the `ADMIN` role.
 - DTO validation, service validation, entity setters and lifecycle callbacks, Jakarta entity validation, and database constraints provide defense in depth.
 - Only violations of the relevant named unique constraint are translated into duplicate-identifier conflicts.
+- Each Product/Warehouse pair has one Inventory record, with `available = onHand - reserved` calculated rather than persisted.
+- Inventory quantities remain nonnegative, and `reserved` cannot exceed `onHand`.
+- Inventory uses `@Version` optimistic locking. Receipts use a fixed Warehouse → Product `PESSIMISTIC_WRITE` row-lock order to prevent concurrent first-receipt races and deadlocks.
+- Every inventory change and its `InventoryMovement` are written in one transaction, so both commit or both roll back.
+- Sales-order creation increases `reserved` without changing `onHand`; cancellation releases `reserved` without changing `onHand` and records `RESERVATION` / `RELEASE` movements.
+- Orders use `BigDecimal` calculations, Product price snapshots, and exact decimal-string JSON amounts. Their model includes `RESERVED`, `PAID`, `SHIPPED`, `CANCELLED`, and `EXPIRED`; only create → `RESERVED`, `RESERVED` → `CANCELLED`, and idempotent repeated cancellation are currently implemented.
+- Order writes use User → Warehouse → Product → Inventory locking; receipts use Warehouse → Product → Inventory; cancellation uses Order → Warehouse → Product → Inventory.
 
 ## API overview
 
@@ -108,9 +120,10 @@ All secured endpoints expect `Authorization: Bearer <token>`. Interactive OpenAP
 | `GET` | `/api/users` | `ADMIN` | List users |
 | `GET` | `/api/users/{username}` | `ADMIN` | Get a user by username |
 | `DELETE` | `/api/users/{username}` | `ADMIN` | Delete a user, subject to admin safety rules |
-| `GET` | `/api/orders?text={text}` | `ADMIN` | List orders, optionally filtering by description text |
-| `POST` | `/api/orders` | `ADMIN` or `USER` | Create a simple order for the authenticated user |
-| `DELETE` | `/api/orders/{id}` | `ADMIN` | Physically delete an order |
+| `GET` | `/api/orders` | Authenticated (`USER` sees own; `ADMIN` sees all with supported filters) | List structured sales orders |
+| `GET` | `/api/orders/{id}` | Authenticated, ownership-aware | Get one structured order |
+| `POST` | `/api/orders` | Authenticated | Create an order and reserve inventory |
+| `POST` | `/api/orders/{id}/cancel` | Owner or `ADMIN` | Cancel a `RESERVED` order and release reservations (idempotent) |
 | `GET` | `/api/products` | Authenticated | List products |
 | `GET` | `/api/products/{id}` | Authenticated | Get a product |
 | `POST` | `/api/products` | `ADMIN` | Create a product |
@@ -126,6 +139,11 @@ All secured endpoints expect `Authorization: Bearer <token>`. Interactive OpenAP
 | `POST` | `/api/warehouses` | `ADMIN` | Create a warehouse |
 | `PUT` | `/api/warehouses/{id}` | `ADMIN` | Update a warehouse |
 | `DELETE` | `/api/warehouses/{id}` | `ADMIN` | Deactivate a warehouse |
+| `GET` | `/api/inventory?productId={id}&warehouseId={id}&lowStock={boolean}` | Authenticated | List inventory with optional product, warehouse, and low-stock filters |
+| `GET` | `/api/inventory/{id}` | Authenticated | Get one inventory record |
+| `POST` | `/api/inventory/receipts` | `ADMIN` | Receive stock, creating initial inventory when necessary |
+| `POST` | `/api/inventory/{id}/adjustments` | `ADMIN` | Apply a reasoned positive or negative on-hand adjustment |
+| `GET` | `/api/inventory/{id}/movements` | Authenticated | List inventory movements in stable reverse-chronological order |
 
 ## Project structure
 
@@ -138,6 +156,7 @@ stockflow/
 │       ├── main/
 │       │   ├── java/com/ivanfranchin/orderapi/
 │       │   │   ├── config/            # OpenAPI and error configuration
+│       │   │   ├── inventory/         # Inventory, movements, transactions, and persistence
 │       │   │   ├── order/             # Order foundation
 │       │   │   ├── product/           # Product domain and persistence
 │       │   │   ├── rest/              # Controllers and request/response DTOs
@@ -222,14 +241,14 @@ Run backend commands from `order-api`:
 # Formatting verification
 ./mvnw spotless:check
 
-# Focused Product, Supplier, Warehouse, and shared-validation tests
-./mvnw -Dtest='BusinessCodeTest,*Product*Test,*Supplier*Test,*Warehouse*Test' test
+# Focused Inventory and shared-text tests
+./mvnw -Dtest='Inventory*Test,BusinessTextTest' test
 
 # Complete backend suite
 ./mvnw clean test
 ```
 
-The current `develop` branch has been verified with **186 backend tests: 0 failures, 0 errors, and 0 skipped**.
+The current backend suite contains **248 tests** and the frontend suite contains **85 tests across 14 files**, all passing.
 
 Build the frontend from `order-ui`:
 
@@ -247,15 +266,16 @@ npm run build
 - [x] Product management
 - [x] Supplier management
 - [x] Warehouse management
+- [x] Inventory and `InventoryMovement`
+- [x] Stock receipt, adjustment, and audit history
+- [x] Optimistic locking and concurrency-safe initial stock creation
 
 ### Planned
 
-- [ ] Inventory and `InventoryMovement`
-- [ ] Stock refill, adjustment, and audit history
-- [ ] Optimistic locking and overselling prevention
-- [ ] Structured `SalesOrder` and `OrderItem`
-- [ ] Reservation, cancellation, and expiration
-- [ ] Frontend management pages
+- [x] Structured sales orders and stock reservation
+- [ ] Payment and shipment transitions
+- [ ] Automatic reservation expiration
+- [ ] Dashboard and remaining master-data UI
 - [ ] Dimensional warehouse/ETL and Power BI
 - [ ] AI replenishment assistant
 - [ ] Deployment and demo

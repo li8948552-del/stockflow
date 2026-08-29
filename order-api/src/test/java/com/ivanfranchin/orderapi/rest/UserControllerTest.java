@@ -12,6 +12,8 @@ import com.ivanfranchin.orderapi.security.Role;
 import com.ivanfranchin.orderapi.security.SecurityConfig;
 import com.ivanfranchin.orderapi.security.TokenProvider;
 import com.ivanfranchin.orderapi.user.User;
+import com.ivanfranchin.orderapi.user.UserDeletionNotAllowedException;
+import com.ivanfranchin.orderapi.user.UserHasOrdersException;
 import com.ivanfranchin.orderapi.user.UserNotFoundException;
 import com.ivanfranchin.orderapi.user.UserService;
 import java.util.List;
@@ -144,9 +146,6 @@ class UserControllerTest {
   @Test
   void deleteUser_returns204WhenFoundAsAdmin() throws Exception {
     CustomUserDetails adminDetails = buildCustomUserDetails("admin", Role.ADMIN);
-    User alice = buildUser("alice", Role.USER);
-    when(userService.validateAndGetUserByUsername("alice")).thenReturn(alice);
-
     mockMvc
         .perform(delete("/api/users/alice").with(user(adminDetails)))
         .andExpect(status().isNoContent());
@@ -155,8 +154,9 @@ class UserControllerTest {
   @Test
   void deleteUser_returns400WhenAdminDeletesOwnAccount() throws Exception {
     CustomUserDetails adminDetails = buildCustomUserDetails("admin", Role.ADMIN);
-    User admin = buildUser("admin", Role.ADMIN);
-    when(userService.validateAndGetUserByUsername("admin")).thenReturn(admin);
+    org.mockito.Mockito.doThrow(new UserDeletionNotAllowedException("self deletion"))
+        .when(userService)
+        .deleteUser("admin", "admin");
 
     mockMvc
         .perform(delete("/api/users/admin").with(user(adminDetails)))
@@ -166,9 +166,9 @@ class UserControllerTest {
   @Test
   void deleteUser_returns400WhenDeletingLastAdmin() throws Exception {
     CustomUserDetails adminDetails = buildCustomUserDetails("admin", Role.ADMIN);
-    User otherAdmin = buildUser("other-admin", Role.ADMIN);
-    when(userService.validateAndGetUserByUsername("other-admin")).thenReturn(otherAdmin);
-    when(userService.countAdmins()).thenReturn(1L);
+    org.mockito.Mockito.doThrow(new UserDeletionNotAllowedException("last admin"))
+        .when(userService)
+        .deleteUser("other-admin", "admin");
 
     mockMvc
         .perform(delete("/api/users/other-admin").with(user(adminDetails)))
@@ -176,12 +176,27 @@ class UserControllerTest {
   }
 
   @Test
-  @WithMockUser(username = "admin", authorities = "ADMIN")
   void deleteUser_returns404WhenNotFound() throws Exception {
-    when(userService.validateAndGetUserByUsername("ghost"))
-        .thenThrow(new UserNotFoundException("User with username ghost not found"));
+    CustomUserDetails adminDetails = buildCustomUserDetails("admin", Role.ADMIN);
+    org.mockito.Mockito.doThrow(new UserNotFoundException("User with username ghost not found"))
+        .when(userService)
+        .deleteUser("ghost", "admin");
 
-    mockMvc.perform(delete("/api/users/ghost")).andExpect(status().isNotFound());
+    mockMvc
+        .perform(delete("/api/users/ghost").with(user(adminDetails)))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void deleteUser_returns409WhenOrderHistoryExists() throws Exception {
+    CustomUserDetails adminDetails = buildCustomUserDetails("admin", Role.ADMIN);
+    org.mockito.Mockito.doThrow(new UserHasOrdersException("order history exists"))
+        .when(userService)
+        .deleteUser("alice", "admin");
+
+    mockMvc
+        .perform(delete("/api/users/alice").with(user(adminDetails)))
+        .andExpect(status().isConflict());
   }
 
   @Test
