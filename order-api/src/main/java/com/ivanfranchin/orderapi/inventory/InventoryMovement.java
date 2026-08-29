@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.inventory;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.product.Product;
 import com.ivanfranchin.orderapi.validation.BusinessText;
 import com.ivanfranchin.orderapi.validation.ValidBusinessText;
@@ -114,7 +115,7 @@ public class InventoryMovement {
       id = UUID.randomUUID().toString();
     }
     if (createdAt == null) {
-      createdAt = Instant.now();
+      createdAt = TimePrecision.databasePrecision(Instant.now());
     }
   }
 

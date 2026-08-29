@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.inventory;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.product.Product;
 import com.ivanfranchin.orderapi.warehouse.Warehouse;
 import jakarta.persistence.CheckConstraint;
@@ -106,7 +107,7 @@ public class Inventory {
     if (id == null) {
       id = UUID.randomUUID().toString();
     }
-    Instant now = Instant.now();
+    Instant now = TimePrecision.databasePrecision(Instant.now());
     if (createdAt == null) {
       createdAt = now;
     }
@@ -116,7 +117,7 @@ public class Inventory {
   @PreUpdate
   void onPreUpdate() {
     validateState();
-    updatedAt = Instant.now();
+    updatedAt = TimePrecision.databasePrecision(Instant.now());
   }
 
   private void validateState() {

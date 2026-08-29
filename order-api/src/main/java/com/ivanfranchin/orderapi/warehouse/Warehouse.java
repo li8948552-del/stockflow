@@ -1,5 +1,6 @@
 package com.ivanfranchin.orderapi.warehouse;
 
+import com.ivanfranchin.orderapi.config.TimePrecision;
 import com.ivanfranchin.orderapi.validation.BusinessCode;
 import com.ivanfranchin.orderapi.validation.ValidBusinessCode;
 import jakarta.persistence.Column;
@@ -59,7 +60,7 @@ public class Warehouse {
   public void onPrePersist() {
     if (id == null) id = UUID.randomUUID().toString();
     warehouseCode = BusinessCode.normalizeAndValidate(warehouseCode, CODE_MAX_LENGTH);
-    Instant now = Instant.now();
+    Instant now = TimePrecision.databasePrecision(Instant.now());
     if (createdAt == null) createdAt = now;
     updatedAt = now;
   }
@@ -67,7 +68,7 @@ public class Warehouse {
   @PreUpdate
   public void onPreUpdate() {
     warehouseCode = BusinessCode.normalizeAndValidate(warehouseCode, CODE_MAX_LENGTH);
-    updatedAt = Instant.now();
+    updatedAt = TimePrecision.databasePrecision(Instant.now());
   }
 
   public void setWarehouseCode(String warehouseCode) {
