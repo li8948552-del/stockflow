@@ -17,7 +17,7 @@ Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-de
 - Transactional inventory management with immutable stock-movement audit records
 - Authenticated master-data reads and `ADMIN`-only create, update, and deactivate operations
 - React authentication and structured order workflows for users and administrators
-- PostgreSQL persistence, OpenAPI documentation, and automated unit, controller, security, and JPA tests
+- PostgreSQL persistence managed by Flyway migrations, OpenAPI documentation, and automated unit, controller, security, and JPA tests
 
 ### Currently under development
 
@@ -73,6 +73,7 @@ flowchart LR
 | Backend build | Maven Wrapper / Maven | Wrapper 3.3.4 / Maven 3.9.16 |
 | Frontend tooling | npm | Lockfile version 3 |
 | Containers | Docker Compose | Compose specification in `compose.yaml` |
+| Database migrations | Flyway | Spring Boot-managed `flyway-core` and PostgreSQL support |
 | Backend testing | JUnit and Mockito | Managed by Spring Boot 4.1.0 |
 | Frontend build/test | Vite / Vitest | 8.1.5 / 4.1.10 |
 
@@ -207,6 +208,8 @@ docker compose up -d
 ```
 
 Docker Compose starts PostgreSQL 18.4 on `localhost:5432` with the database and development credentials declared in [`compose.yaml`](compose.yaml).
+
+On a new database, starting the backend runs `db/migration/V1__baseline_schema.sql` through Flyway and then validates the schema with Hibernate (`ddl-auto=validate`). Normal startup does not drop or recreate tables. For an existing non-empty local database created by the former Hibernate `create` configuration, first verify the connection and schema match this repository, then perform a one-time explicit Flyway baseline using `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` (baseline version `1`). Do not baseline an unknown or production database without an independent schema backup and review; the default remains `false`.
 
 ### Start the backend
 
