@@ -64,7 +64,40 @@ public class InventoryService {
         .findByProductIdAndWarehouseId(productId, warehouseId)
         .map(inventory -> receiveExisting(inventory, quantity, normalizedReference, createdBy))
         .orElseGet(
-            () -> createInitial(product, warehouse, quantity, normalizedReference, createdBy));
+            () ->
+                createInitial(
+                    product,
+                    warehouse,
+                    quantity,
+                    normalizedReference,
+                    createdBy,
+                    InventoryMovementType.INITIAL_STOCK));
+  }
+
+  /**
+   * Receives stock for a purchase receipt, using the same database lock order and audit reference.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public Inventory receiveForPurchaseOrder(
+      String productId, String warehouseId, long quantity, String reference, String createdBy) {
+    if (quantity <= 0)
+      throw new InvalidInventoryQuantityException("Receipt quantity must be greater than zero");
+    validateCreatedBy(createdBy);
+    Warehouse warehouse = getWarehouseForUpdate(warehouseId);
+    Product product = getProductForUpdate(productId);
+    validateActiveReferences(product, warehouse);
+    return inventoryRepository
+        .findByProductIdAndWarehouseId(productId, warehouseId)
+        .map(inventory -> receiveExisting(inventory, quantity, reference, createdBy))
+        .orElseGet(
+            () ->
+                createInitial(
+                    product,
+                    warehouse,
+                    quantity,
+                    reference,
+                    createdBy,
+                    InventoryMovementType.RECEIPT));
   }
 
   @Transactional
@@ -108,21 +141,15 @@ public class InventoryService {
   }
 
   private Inventory createInitial(
-      Product product, Warehouse warehouse, long quantity, String reference, String createdBy) {
+      Product product,
+      Warehouse warehouse,
+      long quantity,
+      String reference,
+      String createdBy,
+      InventoryMovementType movementType) {
     Inventory inventory = new Inventory(product, warehouse, quantity);
     Inventory saved = saveInventory(inventory);
-    saveMovement(
-        saved,
-        InventoryMovementType.INITIAL_STOCK,
-        quantity,
-        0,
-        0,
-        quantity,
-        0,
-        0,
-        reference,
-        null,
-        createdBy);
+    saveMovement(saved, movementType, quantity, 0, 0, quantity, 0, 0, reference, null, createdBy);
     return saved;
   }
 
