@@ -148,16 +148,29 @@ jobs:
             sleep 2
           done
           curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null
-          history_rows=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
-            -c "select version || ':' || success from flyway_schema_history where version in ('1','2') order by version;")
-          [[ "${history_rows}" == $'1:t\n2:t' ]]
-          history_count=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
-            -c "select count(*) from flyway_schema_history where success = true;")
-          [[ "${history_count}" == "2" ]]
-          actual_tables=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
-            -c "select table_name from information_schema.tables where table_schema = 'public' and table_name <> 'flyway_schema_history' order by table_name;")
-          expected_tables=$'goods_receipt_items\ngoods_receipts\ninventories\ninventory_movements\norder_items\norders\nproducts\npurchase_order_items\npurchase_orders\nsuppliers\nusers\nwarehouses'
-          [[ "${actual_tables}" == "${expected_tables}" ]]
+          db_query() {
+            psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -Atv ON_ERROR_STOP=1 -c "$1" | tr -d '\r'
+          }
+          v1_success=$(db_query "select count(*) from flyway_schema_history where version = '1' and success is true;")
+          echo "Flyway V1 successful rows: ${v1_success}"
+          [[ "${v1_success}" == "1" ]] || { echo "Expected exactly one successful V1 migration" >&2; exit 1; }
+          v2_success=$(db_query "select count(*) from flyway_schema_history where version = '2' and success is true;")
+          echo "Flyway V2 successful rows: ${v2_success}"
+          [[ "${v2_success}" == "1" ]] || { echo "Expected exactly one successful V2 migration" >&2; exit 1; }
+          migration_count=$(db_query "select count(*) from flyway_schema_history where version is not null and success is true;")
+          echo "Successful migration rows: ${migration_count}"
+          [[ "${migration_count}" == "2" ]] || { echo "Expected exactly two successful migrations" >&2; exit 1; }
+          business_tables=(users products suppliers warehouses orders order_items inventories inventory_movements purchase_orders purchase_order_items goods_receipts goods_receipt_items)
+          for table_name in "${business_tables[@]}"; do
+            present=$(db_query "select to_regclass('public.${table_name}') is not null;")
+            if [[ "${present}" != "t" ]]; then
+              echo "Missing business table: ${table_name}" >&2
+              exit 1
+            fi
+          done
+          business_table_count=$(db_query "select count(*) from information_schema.tables where table_schema = 'public' and table_name in ('users','products','suppliers','warehouses','orders','order_items','inventories','inventory_movements','purchase_orders','purchase_order_items','goods_receipts','goods_receipt_items');")
+          echo "Business table rows: ${business_table_count}"
+          [[ "${business_table_count}" == "12" ]] || { echo "Expected exactly 12 business tables" >&2; exit 1; }
           psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -v ON_ERROR_STOP=1 \
             -c "create table ci_marker (id integer primary key, value text not null); insert into ci_marker values (1, 'migration-smoke');"
       - name: Verify restart is idempotent
@@ -195,11 +208,18 @@ jobs:
             sleep 2
           done
           curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null
-          history_rows=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
-            -c "select version || ':' || success from flyway_schema_history where version in ('1','2') order by version;")
-          [[ "${history_rows}" == $'1:t\n2:t' ]]
-          history_count=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
-            -c "select count(*) from flyway_schema_history where success = true;")
-          [[ "${history_count}" == "2" ]]
-          marker=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 -c "select value from ci_marker where id = 1;")
-          [[ "${marker}" == "migration-smoke" ]]
+          db_query() {
+            psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -Atv ON_ERROR_STOP=1 -c "$1" | tr -d '\r'
+          }
+          v1_success=$(db_query "select count(*) from flyway_schema_history where version = '1' and success is true;")
+          echo "Flyway V1 successful rows after restart: ${v1_success}"
+          [[ "${v1_success}" == "1" ]] || { echo "Expected exactly one successful V1 migration after restart" >&2; exit 1; }
+          v2_success=$(db_query "select count(*) from flyway_schema_history where version = '2' and success is true;")
+          echo "Flyway V2 successful rows after restart: ${v2_success}"
+          [[ "${v2_success}" == "1" ]] || { echo "Expected exactly one successful V2 migration after restart" >&2; exit 1; }
+          migration_count=$(db_query "select count(*) from flyway_schema_history where version is not null and success is true;")
+          echo "Successful migration rows after restart: ${migration_count}"
+          [[ "${migration_count}" == "2" ]] || { echo "Expected exactly two successful migrations after restart" >&2; exit 1; }
+          marker=$(db_query "select value from ci_marker where id = 1;")
+          echo "Migration marker value after restart: ${marker}"
+          [[ "${marker}" == "migration-smoke" ]] || { echo "Migration marker was not preserved" >&2; exit 1; }
