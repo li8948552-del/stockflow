@@ -113,7 +113,7 @@ jobs:
           done
           echo "PostgreSQL did not become ready" >&2
           exit 1
-      - name: Apply V1 and validate with the application
+      - name: Apply V1 and V2 and validate with the application
         working-directory: order-api
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/stockflow_ci
@@ -148,13 +148,18 @@ jobs:
             sleep 2
           done
           curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null
-          psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" \
-            -v ON_ERROR_STOP=1 \
-            -c "select version, success from flyway_schema_history where version = '1' and success = true;" \
-            -c "select count(*) from information_schema.tables where table_schema = 'public' and table_name in ('users','products','suppliers','warehouses','orders','order_items','inventories','inventory_movements');" \
-            | tee /tmp/stockflow-ci-schema.log
-          grep -q '1 row' /tmp/stockflow-ci-schema.log
-          grep -q '^\s*8\s*$' /tmp/stockflow-ci-schema.log
+          history_rows=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
+            -c "select version || ':' || success from flyway_schema_history where version in ('1','2') order by version;")
+          [[ "${history_rows}" == $'1:t\n2:t' ]]
+          history_count=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
+            -c "select count(*) from flyway_schema_history where success = true;")
+          [[ "${history_count}" == "2" ]]
+          actual_tables=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
+            -c "select table_name from information_schema.tables where table_schema = 'public' and table_name <> 'flyway_schema_history' order by table_name;")
+          expected_tables=$'goods_receipt_items\ngoods_receipts\ninventories\ninventory_movements\norder_items\norders\nproducts\npurchase_order_items\npurchase_orders\nsuppliers\nusers\nwarehouses'
+          [[ "${actual_tables}" == "${expected_tables}" ]]
+          psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -v ON_ERROR_STOP=1 \
+            -c "create table ci_marker (id integer primary key, value text not null); insert into ci_marker values (1, 'migration-smoke');"
       - name: Verify restart is idempotent
         working-directory: order-api
         env:
@@ -190,5 +195,11 @@ jobs:
             sleep 2
           done
           curl --fail --silent http://127.0.0.1:18080/public/numberOfUsers >/dev/null
-          history_rows=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 -c "select count(*) from flyway_schema_history where version = '1' and success = true;")
-          [[ "${history_rows}" == "1" ]]
+          history_rows=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
+            -c "select version || ':' || success from flyway_schema_history where version in ('1','2') order by version;")
+          [[ "${history_rows}" == $'1:t\n2:t' ]]
+          history_count=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 \
+            -c "select count(*) from flyway_schema_history where success = true;")
+          [[ "${history_count}" == "2" ]]
+          marker=$(psql "host=127.0.0.1 port=5432 dbname=stockflow_ci user=ci_user" -tA -v ON_ERROR_STOP=1 -c "select value from ci_marker where id = 1;")
+          [[ "${marker}" == "migration-smoke" ]]
