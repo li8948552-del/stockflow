@@ -56,6 +56,12 @@ public class SecurityConfig {
                     .hasAuthority(Role.ADMIN.name())
                     .requestMatchers(HttpMethod.POST, "/api/inventory/**")
                     .hasAuthority(Role.ADMIN.name())
+                    .requestMatchers(
+                        HttpMethod.GET, "/api/purchase-orders", "/api/purchase-orders/**")
+                    .hasAuthority(Role.ADMIN.name())
+                    .requestMatchers(
+                        HttpMethod.POST, "/api/purchase-orders", "/api/purchase-orders/**")
+                    .hasAuthority(Role.ADMIN.name())
                     .requestMatchers("/api/users", "/api/users/**")
                     .hasAuthority(Role.ADMIN.name())
                     .requestMatchers("/public/**", "/auth/**")
