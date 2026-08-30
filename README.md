@@ -15,17 +15,18 @@ Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-de
 - Product master data with validated pricing, reorder points, activation status, and normalized unique SKUs
 - Supplier and Warehouse master data with normalized unique business codes
 - Transactional inventory management with immutable stock-movement audit records
+- Procurement management with purchase orders, goods receipts, idempotent batch receiving, and inventory audit integration
 - Authenticated master-data reads and `ADMIN`-only create, update, and deactivate operations
 - React authentication and structured order workflows for users and administrators
 - PostgreSQL persistence managed by Flyway migrations, OpenAPI documentation, and automated unit, controller, security, and JPA tests
 
 ### Currently under development
 
-- Frontend management experiences for Product, Supplier, and Warehouse data
+- Procurement React screens and frontend management experiences for Product, Supplier, Warehouse, and Inventory data
 
 ### Planned roadmap
 
-The lifecycle workflows are implemented as simulated, development-safe operations. Product/Supplier/Warehouse management pages, BI, ETL, Power BI, AI-assisted replenishment, and frontend inventory pages are not implemented.
+The lifecycle workflows are implemented as simulated, development-safe operations. Procurement backend APIs are complete; procurement React screens, Product/Supplier/Warehouse/Inventory management pages, BI, ETL, Power BI, AI-assisted replenishment, and external supplier/ERP integrations are not implemented.
 
 ## Engineering highlights
 
@@ -40,12 +41,16 @@ The lifecycle workflows are implemented as simulated, development-safe operation
 - DTO/entity separation so JPA entities are not exposed directly by master-data APIs
 - Constraint-specific duplicate handling that does not misclassify unrelated persistence failures
 - Transactionally atomic Inventory updates and append-only `InventoryMovement` audit records
+- Procurement workflows use `PurchaseOrder`/`PurchaseOrderItem` and `GoodsReceipt`/`GoodsReceiptItem` aggregates with server-assigned line numbers and batched receiving
+- Procurement supports `DRAFT` → `SUBMITTED` → `PARTIALLY_RECEIVED` → `RECEIVED`, plus cancellation from `DRAFT`, `SUBMITTED`, or `PARTIALLY_RECEIVED`
+- `clientRequestId` makes receiving idempotent; reusing a key with a different payload returns a conflict
+- Procurement receives stock with the fixed Warehouse → Product → Inventory lock order and records `RECEIPT` inventory audit movements
 - `@Version` optimistic locking for inventory updates and a fixed Warehouse → Product `PESSIMISTIC_WRITE` lock order for receipts
 - Structured order forms support warehouse/product selection, multiple items, available-quantity hints, exact estimated totals, order detail views, cancellation, and ADMIN filtering across all orders
 - The React UI lets USERs simulate payment or cancel their own `RESERVED` orders; ADMINs can operate on any order, including shipping `PAID` orders. Lifecycle statuses and timestamps are shown, conflict responses refresh server state, and no real payment form is provided.
 - OrderItem `lineNumber` preserves request/display order while inventory locks remain sorted by stable product identifiers
 - Deterministic Java 25 Mockito execution through an explicitly resolved, portable Maven Surefire Java agent
-- 280 backend tests and 90 frontend tests (14 files) verified with 0 failures
+- 322 backend tests and 90 frontend tests (14 files) verified with 0 failures. Procurement coverage includes Domain, Persistence, Controller/Security, and Concurrency tests.
 
 The Order module now implements the core lifecycle: RESERVED → PAID, PAID → SHIPPED, RESERVED → CANCELLED, and RESERVED → EXPIRED. Payment is a simulated confirmation only; no payment gateway or real funds are involved.
 
@@ -88,6 +93,7 @@ flowchart LR
 | Warehouse | Implemented | Warehouse identity, normalized code, location, active status, and timestamps |
 | Inventory | Implemented | Per-product, per-warehouse on-hand and reserved quantities with calculated availability and optimistic locking |
 | InventoryMovement | Implemented | Immutable audit history for stock changes, reservations, releases, and adjustments |
+| Procurement Management | Implemented | Purchase orders, supplier/warehouse purchasing, idempotent batch goods receipts, inventory integration, and receipt audit history |
 
 ## Business rules
 
@@ -105,12 +111,16 @@ flowchart LR
 - Inventory uses `@Version` optimistic locking. Receipts use a fixed Warehouse → Product `PESSIMISTIC_WRITE` row-lock order to prevent concurrent first-receipt races and deadlocks.
 - Every inventory change and its `InventoryMovement` are written in one transaction, so both commit or both roll back.
 - Movement types are `INITIAL_STOCK`, `RECEIPT`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, `RESERVATION`, `RELEASE`, and `SHIPMENT`.
+- Procurement uses `PurchaseOrder`, `PurchaseOrderItem`, `GoodsReceipt`, and `GoodsReceiptItem`. Unit costs and totals are server-calculated decimal strings; ordered, received, and remaining quantities are returned in stable line-number order.
+- Procurement APIs are `GET /api/purchase-orders`, `GET /api/purchase-orders/{id}`, `POST /api/purchase-orders`, `POST /api/purchase-orders/{id}/submit`, `POST /api/purchase-orders/{id}/receipts`, and `POST /api/purchase-orders/{id}/cancel`. All procurement endpoints are `ADMIN`-only; authenticated `USER` requests receive 403 and anonymous requests receive 401.
+- Procurement receiving supports partial batches, uses `clientRequestId` idempotency, conflicts when the same key carries a different payload, and records one `RECEIPT` movement per received line without changing `reserved`.
 - Sales-order creation increases `reserved` without changing `onHand`; cancellation releases `reserved` without changing `onHand` and records `RESERVATION` / `RELEASE` movements.
 - Orders use `BigDecimal` calculations, Product price snapshots, and exact decimal-string JSON amounts. Their model includes `RESERVED`, `PAID`, `SHIPPED`, `CANCELLED`, and `EXPIRED`; repeated payment, shipment, cancellation, and expiration processing are idempotent where applicable.
 - Payment uses `POST /api/orders/{id}/pay` as simulated payment confirmation. The server generates a stable `paymentReference`; clients never submit card, amount, or payment data.
 - Shipment uses `POST /api/orders/{id}/ship` for `ADMIN` users. It changes `PAID` → `SHIPPED`, decreases `onHand` and `reserved`, and records a `SHIPMENT` movement.
 - Scheduled expiration batches due `RESERVED` orders and processes each through an independent `REQUIRES_NEW` transaction, releasing `reserved` while leaving `onHand` unchanged and recording `RELEASE`. An Order row lock makes multi-instance processing idempotent. Configuration includes `app.order-expiration.enabled`, `interval-ms`, and `batch-size`.
 - Order writes use User → Warehouse → Product → Inventory locking; receipts use Warehouse → Product → Inventory; cancellation, shipment, and expiration use Order → Warehouse → Product → Inventory.
+- Database schema changes are managed by Flyway. The procurement tables are introduced by `db/migration/V2__add_procurement_management.sql`; future changes must add V3 or later migrations and must not modify V1 or V2.
 
 ## API overview
 
@@ -281,12 +291,11 @@ npm run build
 - [x] Optimistic locking and concurrency-safe initial stock creation
 - [x] Structured sales orders and stock reservation
 - [x] Payment, shipment, and automatic reservation expiration lifecycle
+- [x] Flyway database migrations and GitHub Actions CI quality gates
 
 ### Planned
 
-- [ ] Flyway database migrations
 - [ ] PostgreSQL Testcontainers
-- [ ] GitHub Actions CI
 - [ ] Product/Supplier/Warehouse/Inventory management UI
 - [ ] Dashboard
 - [ ] Docker deployment
