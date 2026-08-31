@@ -22,11 +22,11 @@ Repository: [github.com/li8948552-del/stockflow](https://github.com/li8948552-de
 
 ### Currently under development
 
-- Procurement React screens and frontend management experiences for Product, Supplier, Warehouse, and Inventory data
+- Product, Supplier, Warehouse, and Inventory management pages
 
 ### Planned roadmap
 
-The lifecycle workflows are implemented as simulated, development-safe operations. Procurement backend APIs are complete; procurement React screens, Product/Supplier/Warehouse/Inventory management pages, BI, ETL, Power BI, AI-assisted replenishment, and external supplier/ERP integrations are not implemented.
+The lifecycle workflows are implemented as simulated, development-safe operations. Procurement backend APIs and the administrator procurement React experience are complete; Product/Supplier/Warehouse/Inventory management pages, BI, ETL, Power BI, AI-assisted replenishment, and external supplier/ERP integrations are not implemented.
 
 ## Engineering highlights
 
@@ -50,7 +50,7 @@ The lifecycle workflows are implemented as simulated, development-safe operation
 - The React UI lets USERs simulate payment or cancel their own `RESERVED` orders; ADMINs can operate on any order, including shipping `PAID` orders. Lifecycle statuses and timestamps are shown, conflict responses refresh server state, and no real payment form is provided.
 - OrderItem `lineNumber` preserves request/display order while inventory locks remain sorted by stable product identifiers
 - Deterministic Java 25 Mockito execution through an explicitly resolved, portable Maven Surefire Java agent
-- 322 backend tests and 90 frontend tests (14 files) verified with 0 failures. Procurement coverage includes Domain, Persistence, Controller/Security, and Concurrency tests.
+- 322 backend tests and 118 frontend tests (15 files) verified with 0 failures. Procurement coverage includes Domain, Persistence, Controller/Security, and Concurrency tests, plus the administrator UI.
 
 The Order module now implements the core lifecycle: RESERVED → PAID, PAID → SHIPPED, RESERVED → CANCELLED, and RESERVED → EXPIRED. Payment is a simulated confirmation only; no payment gateway or real funds are involved.
 
@@ -114,6 +114,7 @@ flowchart LR
 - Procurement uses `PurchaseOrder`, `PurchaseOrderItem`, `GoodsReceipt`, and `GoodsReceiptItem`. Unit costs and totals are server-calculated decimal strings; ordered, received, and remaining quantities are returned in stable line-number order.
 - Procurement APIs are `GET /api/purchase-orders`, `GET /api/purchase-orders/{id}`, `POST /api/purchase-orders`, `POST /api/purchase-orders/{id}/submit`, `POST /api/purchase-orders/{id}/receipts`, and `POST /api/purchase-orders/{id}/cancel`. All procurement endpoints are `ADMIN`-only; authenticated `USER` requests receive 403 and anonymous requests receive 401.
 - Procurement receiving supports partial batches, uses `clientRequestId` idempotency, conflicts when the same key carries a different payload, and records one `RECEIPT` movement per received line without changing `reserved`.
+- The administrator procurement UI provides purchase-order listing with Supplier/Warehouse/Status filters, creation, Submit/Cancel actions, partial receiving, safe `clientRequestId` retries, 409 server-state synchronization, exact decimal-string/BigInt amount display, lifecycle timestamps, and Receipt audit summaries. A real supplier portal, external ERP integration, and real procurement payment are not implemented.
 - Sales-order creation increases `reserved` without changing `onHand`; cancellation releases `reserved` without changing `onHand` and records `RESERVATION` / `RELEASE` movements.
 - Orders use `BigDecimal` calculations, Product price snapshots, and exact decimal-string JSON amounts. Their model includes `RESERVED`, `PAID`, `SHIPPED`, `CANCELLED`, and `EXPIRED`; repeated payment, shipment, cancellation, and expiration processing are idempotent where applicable.
 - Payment uses `POST /api/orders/{id}/pay` as simulated payment confirmation. The server generates a stable `paymentReference`; clients never submit card, amount, or payment data.
@@ -268,7 +269,7 @@ Run backend commands from `order-api`:
 ./mvnw clean test
 ```
 
-The current backend suite contains **280 tests** and the frontend suite contains **90 tests across 14 files**, all passing. Concurrency/configuration coverage includes `OrderConcurrencyTest` (10), `OrderExpirationSchedulerTest` (5), and `OrderExpirationConfigurationTest` (2).
+The current backend suite contains **322 tests** and the frontend suite contains **118 tests across 15 files**, all passing. Concurrency/configuration coverage includes `OrderConcurrencyTest` (10), `OrderExpirationSchedulerTest` (5), and `OrderExpirationConfigurationTest` (2). Procurement frontend coverage includes the administrator list, filters, creation, lifecycle actions, partial receiving, idempotency retries, and conflict synchronization.
 
 Build the frontend from `order-ui`:
 
