@@ -63,4 +63,78 @@ describe('OrderApi', () => {
       expect.objectContaining({ params, signal: controller.signal })
     )
   })
+
+  it('maps procurement list filters and abort signal', () => {
+    const controller = new AbortController()
+    orderApi.getPurchaseOrders(
+      user,
+      { supplierId: 's1', warehouseId: 'w1', status: 'DRAFT' },
+      controller.signal
+    )
+    expect(mocks.get).toHaveBeenCalledWith(
+      '/api/purchase-orders',
+      expect.objectContaining({
+        params: { supplierId: 's1', warehouseId: 'w1', status: 'DRAFT' },
+        signal: controller.signal
+      })
+    )
+  })
+
+  it('uses all procurement endpoints and sends server-owned fields only', () => {
+    const payload = {
+      supplierId: 's1',
+      warehouseId: 'w1',
+      expectedDeliveryDate: null,
+      items: [{ productId: 'p1', quantity: 2, unitCost: '12.30' }]
+    }
+    orderApi.createPurchaseOrder(user, payload)
+    orderApi.submitPurchaseOrder(user, 'po1')
+    orderApi.receivePurchaseOrder(user, 'po1', {
+      clientRequestId: 'request-1',
+      items: [{ purchaseOrderItemId: 'item-1', quantity: 1 }]
+    })
+    orderApi.cancelPurchaseOrder(user, 'po1')
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/purchase-orders',
+      payload,
+      expect.any(Object)
+    )
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/purchase-orders/po1/submit',
+      null,
+      expect.any(Object)
+    )
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      3,
+      '/api/purchase-orders/po1/receipts',
+      expect.objectContaining({ clientRequestId: 'request-1' }),
+      expect.any(Object)
+    )
+    expect(mocks.post).toHaveBeenNthCalledWith(
+      4,
+      '/api/purchase-orders/po1/cancel',
+      null,
+      expect.any(Object)
+    )
+    expect(JSON.stringify(payload)).not.toMatch(
+      /lineNumber|lineTotal|totalAmount|receivedQuantity/
+    )
+  })
+
+  it('gets a single procurement order with an abort signal', () => {
+    const controller = new AbortController()
+    orderApi.getPurchaseOrder(user, 'po1', controller.signal)
+    expect(mocks.get).toHaveBeenCalledWith(
+      '/api/purchase-orders/po1',
+      expect.objectContaining({ signal: controller.signal })
+    )
+  })
+
+  it('does not expose unsupported procurement mutation methods', () => {
+    expect(orderApi.deletePurchaseOrder).toBeUndefined()
+    expect(orderApi.putPurchaseOrder).toBeUndefined()
+    expect(orderApi.patchPurchaseOrder).toBeUndefined()
+  })
 })

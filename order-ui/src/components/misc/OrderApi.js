@@ -18,6 +18,13 @@ export const orderApi = {
   getProducts,
   getWarehouses,
   getInventory,
+  getSuppliers,
+  getPurchaseOrders,
+  getPurchaseOrder,
+  createPurchaseOrder,
+  submitPurchaseOrder,
+  receivePurchaseOrder,
+  cancelPurchaseOrder,
   getUserMe
 }
 
@@ -100,14 +107,16 @@ function shipOrder(user, orderId) {
   })
 }
 
-function getProducts(user) {
+function getProducts(user, signal) {
   return instance.get('/api/products', {
+    signal,
     headers: { Authorization: bearerAuth(user) }
   })
 }
 
-function getWarehouses(user) {
+function getWarehouses(user, signal) {
   return instance.get('/api/warehouses', {
+    signal,
     headers: { Authorization: bearerAuth(user) }
   })
 }
@@ -116,6 +125,59 @@ function getInventory(user, params = {}, signal) {
   return instance.get('/api/inventory', {
     params,
     signal,
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function getSuppliers(user, signal) {
+  return instance.get('/api/suppliers', {
+    signal,
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function getPurchaseOrders(user, params = {}, signal) {
+  return instance.get('/api/purchase-orders', {
+    params,
+    signal,
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function getPurchaseOrder(user, id, signal) {
+  return instance.get(`/api/purchase-orders/${id}`, {
+    signal,
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function createPurchaseOrder(user, purchaseOrder) {
+  return instance.post('/api/purchase-orders', purchaseOrder, {
+    headers: {
+      'Content-type': 'application/json',
+      Authorization: bearerAuth(user)
+    }
+  })
+}
+
+function submitPurchaseOrder(user, id) {
+  return instance.post(`/api/purchase-orders/${id}/submit`, null, {
+    headers: { Authorization: bearerAuth(user) }
+  })
+}
+
+function receivePurchaseOrder(user, id, receipt, signal) {
+  return instance.post(`/api/purchase-orders/${id}/receipts`, receipt, {
+    signal,
+    headers: {
+      'Content-type': 'application/json',
+      Authorization: bearerAuth(user)
+    }
+  })
+}
+
+function cancelPurchaseOrder(user, id) {
+  return instance.post(`/api/purchase-orders/${id}/cancel`, null, {
     headers: { Authorization: bearerAuth(user) }
   })
 }

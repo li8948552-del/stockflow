@@ -268,6 +268,7 @@ function AdminPage() {
           processingId={processingId}
           handlePayOrder={handlePayOrder}
           handleShipOrder={handleShipOrder}
+          user={user}
         />
       </Stack>
     </Container>
