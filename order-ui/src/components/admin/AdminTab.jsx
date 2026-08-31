@@ -1,7 +1,12 @@
 import { Box, LoadingOverlay, Tabs } from '@mantine/core'
-import { IconDeviceLaptop, IconUsers } from '@tabler/icons-react'
+import {
+  IconDeviceLaptop,
+  IconUsers,
+  IconTruckDelivery
+} from '@tabler/icons-react'
 import UserTable from './UserTable'
 import OrderTable from './OrderTable'
+import ProcurementPage from './ProcurementPage'
 
 function AdminTab(props) {
   return (
@@ -12,6 +17,12 @@ function AdminTab(props) {
         </Tabs.Tab>
         <Tabs.Tab value='orders' leftSection={<IconDeviceLaptop size={16} />}>
           Orders
+        </Tabs.Tab>
+        <Tabs.Tab
+          value='procurement'
+          leftSection={<IconTruckDelivery size={16} />}
+        >
+          Purchase Orders
         </Tabs.Tab>
       </Tabs.List>
       <Tabs.Panel value='users' pt='md'>
@@ -24,6 +35,11 @@ function AdminTab(props) {
             handleDeleteUser={props.handleDeleteUser}
             handleSearchUser={props.handleSearchUser}
           />
+        </Box>
+      </Tabs.Panel>
+      <Tabs.Panel value='procurement' pt='md'>
+        <Box pos='relative'>
+          <ProcurementPage user={props.user} />
         </Box>
       </Tabs.Panel>
       <Tabs.Panel value='orders' pt='md'>
