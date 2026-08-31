@@ -249,6 +249,7 @@ function OrderList({
         opened={Boolean(currentConfirmPayment?.status === 'RESERVED')}
         onClose={() => !processingId && setConfirmPayment(null)}
         title='Simulate payment confirmation?'
+        transitionProps={{ duration: 0 }}
       >
         <Stack>
           <Text>This demo action does not contact a payment provider.</Text>
