@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+.env.*
+**/target
+**/node_modules
+**/dist
+**/coverage
+*.log
+.idea
