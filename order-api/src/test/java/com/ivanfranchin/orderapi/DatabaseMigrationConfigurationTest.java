@@ -20,4 +20,13 @@ class DatabaseMigrationConfigurationTest {
     assertThat(source.getProperty("spring.flyway.clean-disabled")).isEqualTo(true);
     assertThat(source.getProperty("spring.flyway.baseline-on-migrate")).isEqualTo(false);
   }
+
+  @Test
+  void productionConfigurationHasNoPublicJwtFallback() throws Exception {
+    List<PropertySource<?>> sources =
+        new YamlPropertySourceLoader()
+            .load("application", new ClassPathResource("application.yml"));
+
+    assertThat(sources.get(0).getProperty("app.jwt.secret")).isEqualTo("${JWT_SECRET}");
+  }
 }

@@ -8,12 +8,14 @@ import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
+import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import javax.crypto.SecretKey;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
@@ -31,8 +33,30 @@ public class TokenProvider {
   @Value("${app.jwt.secret}")
   private String jwtSecret;
 
+  private SecretKey signingKey;
+
   @Value("${app.jwt.expiration.minutes}")
   private long jwtExpirationMinutes;
+
+  @PostConstruct
+  void initializeSigningKey() {
+    if (jwtSecret == null || jwtSecret.isBlank()) {
+      throw new IllegalStateException("Invalid JWT secret configuration: value is required");
+    }
+    byte[] secretBytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
+    if (secretBytes.length < 64) {
+      throw new IllegalStateException(
+          "Invalid JWT secret configuration: at least 64 UTF-8 bytes are required");
+    }
+    signingKey = Keys.hmacShaKeyFor(secretBytes);
+  }
+
+  private SecretKey getSigningKey() {
+    if (signingKey == null) {
+      initializeSigningKey();
+    }
+    return signingKey;
+  }
 
   public String generate(Authentication authentication) {
     CustomUserDetails user = (CustomUserDetails) authentication.getPrincipal();
@@ -40,15 +64,13 @@ public class TokenProvider {
     List<String> roles =
         user.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
 
-    byte[] signingKey = jwtSecret.getBytes(StandardCharsets.UTF_8);
-
     Instant now = Instant.now();
 
     return Jwts.builder()
         .header()
         .add("typ", TOKEN_TYPE)
         .and()
-        .signWith(Keys.hmacShaKeyFor(signingKey), Jwts.SIG.HS512)
+        .signWith(getSigningKey(), Jwts.SIG.HS512)
         .issuedAt(Date.from(now))
         .expiration(Date.from(now.plusSeconds(60 * jwtExpirationMinutes)))
         .id(UUID.randomUUID().toString())
@@ -66,10 +88,7 @@ public class TokenProvider {
 
   public Optional<Jws<Claims>> validateTokenAndGetJws(String token) {
     try {
-      byte[] signingKey = jwtSecret.getBytes(StandardCharsets.UTF_8);
-
-      Jws<Claims> jws =
-          Jwts.parser().verifyWith(Keys.hmacShaKeyFor(signingKey)).build().parseSignedClaims(token);
+      Jws<Claims> jws = Jwts.parser().verifyWith(getSigningKey()).build().parseSignedClaims(token);
 
       return Optional.of(jws);
     } catch (ExpiredJwtException exception) {

@@ -210,15 +210,33 @@ stockflow/
 - npm
 - Git
 
-### Clone and start PostgreSQL
+### One-command Docker deployment
 
 ```bash
 git clone https://github.com/li8948552-del/stockflow.git
 cd stockflow
-docker compose up -d
+cp .env.example .env
+# Edit .env and set local passwords/secrets before sharing the file.
+docker compose up --build
 ```
 
-Docker Compose starts PostgreSQL 18.4 on `localhost:5432` with the database and development credentials declared in [`compose.yaml`](compose.yaml).
+The Compose stack provides PostgreSQL 18.4, the Spring Boot API, and an Nginx-served React production build. Open `http://localhost:3000`; Nginx proxies `/api`, `/auth`, and `/public` to the API, so the production bundle does not contain a hard-coded localhost API URL. PostgreSQL and the API are internal to the Compose network; only the frontend port is published by default.
+
+The PostgreSQL data is stored in the named `stockflow-postgres-data` volume. Flyway applies V1 and V2 before Hibernate validates the schema (`ddl-auto=validate`), and normal startup never recreates tables. The Docker profile disables the legacy development demo-account initializer; create an account through `/auth/signup` instead. `JWT_SECRET` and the PostgreSQL password are required in `.env`; Compose refuses to start when either is missing or empty. Generate a strong HS512-compatible secret locally, for example:
+
+```bash
+openssl rand -base64 64
+```
+
+Write the generated value to your local `.env` together with a private database password. Never commit `.env` or print these values in logs; `.env` is ignored by Git. `STOCKFLOW_HTTP_PORT` and expiration settings are also read from `.env` (see [`.env.example`](.env.example)).
+
+Stop the stack while retaining data with:
+
+```bash
+docker compose down
+```
+
+To remove the local database volume as well, explicitly run `docker compose down -v`. This permanently deletes the local PostgreSQL data in the Compose volume; do not use it when data must be retained.
 
 On a new database, starting the backend runs `db/migration/V1__baseline_schema.sql` through Flyway and then validates the schema with Hibernate (`ddl-auto=validate`). Normal startup does not drop or recreate tables. For an existing non-empty local database created by the former Hibernate `create` configuration, first verify the connection and schema match this repository, then perform a one-time explicit Flyway baseline using `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` (baseline version `1`). Do not baseline an unknown or production database without an independent schema backup and review; the default remains `false`.
 
@@ -245,12 +263,12 @@ npm start
 
 The frontend runs at `http://localhost:3000` and is allowed by the backend's default CORS configuration.
 
-On an empty database, the application creates these development accounts:
+Demo-account initialization is an optional, isolated local-development feature. It is disabled by default and should not be enabled in shared, test, staging, or production environments. To opt in for a manual local run, set `APP_DATABASE_INITIALIZE_DEMO_DATA=true` and provide non-blank `DEMO_ADMIN_PASSWORD` and `DEMO_USER_PASSWORD` environment variables. Passwords are stored only as BCrypt hashes and existing users are not overwritten; never place real credentials in this repository or logs.
 
 | Role | Username | Password |
 | --- | --- | --- |
-| `ADMIN` | `admin` | `admin` |
-| `USER` | `user` | `user` |
+| `ADMIN` | `admin` | Supplied via `DEMO_ADMIN_PASSWORD` |
+| `USER` | `user` | Supplied via `DEMO_USER_PASSWORD` |
 
 New `USER` accounts can also be created through `/auth/signup`.
 
@@ -299,7 +317,7 @@ npm run build
 - [ ] PostgreSQL Testcontainers
 - [ ] Product/Supplier/Warehouse/Inventory management UI
 - [ ] Dashboard
-- [ ] Docker deployment
+- [x] Docker deployment
 - [ ] Data warehouse and Power BI
 - [ ] AI replenishment assistant
 
