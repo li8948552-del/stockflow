@@ -1,11 +1,13 @@
 package com.ivanfranchin.orderapi.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -98,6 +100,60 @@ class TokenProviderTest {
     Optional<Jws<Claims>> result = tokenProvider.validateTokenAndGetJws(null);
 
     assertThat(result).isEmpty();
+  }
+
+  @Test
+  void initializeSigningKey_rejectsMissingSecretWithoutLeakingValue() {
+    ReflectionTestUtils.setField(tokenProvider, "jwtSecret", "  ");
+
+    assertThatThrownBy(
+            () -> ReflectionTestUtils.invokeMethod(tokenProvider, "initializeSigningKey"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Invalid JWT secret configuration")
+        .satisfies(error -> assertThat(error.getMessage()).doesNotContain("  "));
+  }
+
+  @Test
+  void initializeSigningKey_rejectsNullSecret() {
+    ReflectionTestUtils.setField(tokenProvider, "jwtSecret", null);
+
+    assertThatThrownBy(
+            () -> ReflectionTestUtils.invokeMethod(tokenProvider, "initializeSigningKey"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("value is required");
+  }
+
+  @Test
+  void initializeSigningKey_rejectsSecretShorterThan64Utf8Bytes() {
+    String secret = "a".repeat(63);
+    ReflectionTestUtils.setField(tokenProvider, "jwtSecret", secret);
+
+    assertThatThrownBy(
+            () -> ReflectionTestUtils.invokeMethod(tokenProvider, "initializeSigningKey"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("64 UTF-8 bytes")
+        .satisfies(error -> assertThat(error.getMessage()).doesNotContain(secret));
+  }
+
+  @Test
+  void initializeSigningKey_acceptsExactly64AsciiBytes() {
+    ReflectionTestUtils.setField(tokenProvider, "jwtSecret", "a".repeat(64));
+
+    ReflectionTestUtils.invokeMethod(tokenProvider, "initializeSigningKey");
+
+    assertThat(tokenProvider.generate(mockAuthentication("alice", "USER"))).isNotBlank();
+  }
+
+  @Test
+  void initializeSigningKey_acceptsUnicodeSecretBasedOnUtf8ByteLength() {
+    String secret = "é".repeat(32);
+    assertThat(secret.length()).isEqualTo(32);
+    assertThat(secret.getBytes(StandardCharsets.UTF_8)).hasSize(64);
+    ReflectionTestUtils.setField(tokenProvider, "jwtSecret", secret);
+
+    ReflectionTestUtils.invokeMethod(tokenProvider, "initializeSigningKey");
+
+    assertThat(tokenProvider.generate(mockAuthentication("alice", "USER"))).isNotBlank();
   }
 
   // -- helpers --
